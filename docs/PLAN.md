@@ -22,40 +22,32 @@
 - [x] Chat message one-click copy
 - [x] Run history clear button
 - [x] Multi-user session persistence
+- [x] ADK agent loop — multi-turn tool calling via Google ADK Go v0.6.0
+- [x] SSE streaming — real-time text deltas + tool call events via `POST /api/chat/stream`
+- [x] Frontend SSE consumer (`useChatStream` hook) with streaming dots indicator
+- [x] Collapsible tool call cards (name + status collapsed, JSON input/output expanded)
+- [x] Settings provider CRUD with presets (OpenAI, OpenRouter, Anthropic, Custom)
+- [x] No env var fallback — must configure via Settings UI
+- [x] Hot-swap provider + re-create ADK runner at runtime
+- [x] Collapsible sidebar (icon-only mode with localStorage persistence)
+- [x] Session reuse (empty "New Chat" recycled instead of duplicated)
 
 ---
 
 ## In Progress / Next
 
-### Agent Loop (agentic chat)
-
-> 当前问题：AI 调用 skill 后只执行一轮就停了，无法完成需要多步推理的任务。
-> 参考 OpenClaw / claw0 的 agent loop 模式。
-
-- [ ] Agent loop: AI -> skill call -> result fed back -> AI continues -> repeat
-  - `while` loop in `SendMessage`, check `stop_reason` / no more skill calls
-  - Max iterations cap (default 10) to prevent runaway
-  - Skill result as `tool` role message fed back to conversation context
-  - Destructive skill -> break loop, return confirm request -> `ConfirmAction` resumes loop
-- [ ] SSE streaming for agent loop (stream each step to frontend in real-time)
-- [ ] Frontend: show intermediate skill calls and results as they happen
-
-### Settings / Provider 配置
-
-> 当前问题：settings API 返回空 providers，实际在用环境变量里的 OpenRouter。
-
-- [ ] Settings 页面配置的 provider 应该正确持久化和加载
-- [ ] 移除环境变量 fallback，统一走 settings 配置
-- [ ] 首次启动引导用户配置 provider
-
----
-
-## Priority
+### ADK Session 持久化
+- [ ] GitStore session adapter（persist ADK sessions across restarts）
+- [ ] HITL: `RequestConfirmation` for destructive tool calls via SSE
 
 ### 持久化
 - [ ] Pipeline 执行结果迁移至 SQLite
 - [ ] 统一存储层，抽象 Repository/Store 接口
 - [ ] 文档存储保持 Markdown 文件（不入数据库）
+
+---
+
+## Priority
 
 ### 审计日志
 - [ ] 全链路操作日志（用户操作、AI 行为、Skill 执行、Pipeline 节点）
@@ -90,7 +82,6 @@
 
 ## UI
 - [ ] Chat 输入框 react-textarea-autosize
-- [ ] Chat UI skill 调用卡片：默认折叠显示 skill 名称和状态，展开显示完整结果；JSON 结果自动 format
 - [x] BlockNote 文档编辑器（默认编辑模式，Cmd+S 保存，markdown 双向转换）
 - [x] react-arborist 文件树（虚拟化渲染，搜索过滤，右键菜单，文件类型图标）
 - [x] 文档 API 目录列表（GET /api/documents/{dir} 返回子项，前端递归获取完整树）
