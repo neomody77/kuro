@@ -1,0 +1,41 @@
+# Built binaries
+/kuro
+/kuro-cli
+/kuro-recovery
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Embedded UI build output (regenerate with: cd ui && npm run build)
+cmd/kuro/ui/
+
+# UI
+ui/node_modules/
+ui/dist/
+
+# Go
+*.test
+*.out
+coverage.txt
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets & runtime data
+.env
+*.key
+*.pem
+*.cert
+*.db
+*.sqlite
+*.log

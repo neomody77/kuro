@@ -1,0 +1,232 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Design Tokens - Semantic color system
+ *
+ * Contrast ratios (WCAG AA):
+ * - text-primary on bg-primary: >= 7:1
+ * - text-secondary on bg-primary: >= 4.5:1
+ * - text-tertiary on bg-primary: >= 3:1
+ * - text-primary on bg-secondary: >= 7:1
+ */
+
+@theme {
+  /* Light theme surfaces */
+  --color-surface-primary: #ffffff;
+  --color-surface-secondary: #f8f8fa;
+  --color-surface-tertiary: #f0f0f3;
+  --color-surface-elevated: #ffffff;
+  --color-surface-hover: #f0f0f3;
+  --color-surface-active: #e8e8ec;
+
+  /* Light theme borders */
+  --color-border-primary: #e2e2e7;
+  --color-border-secondary: #ebebf0;
+  --color-border-focus: #6366f1;
+
+  /* Light theme text - all meet WCAG AA on white */
+  --color-text-primary: #1a1a22;       /* ~16:1 on white */
+  --color-text-secondary: #4b4b5a;     /* ~7.5:1 on white */
+  --color-text-tertiary: #8b8b9a;      /* ~3.5:1 on white */
+  --color-text-quaternary: #b0b0bc;    /* placeholder text */
+  --color-text-inverse: #ffffff;
+
+  /* Light theme accent */
+  --color-accent: #6366f1;
+  --color-accent-hover: #5558e6;
+  --color-accent-text: #ffffff;
+
+  /* Status */
+  --color-success: #10b981;
+  --color-error: #ef4444;
+  --color-warning: #f59e0b;
+}
+
+/* Dark theme - Linear.app inspired
+ * Very dark blue-tinted backgrounds, crisp white text
+ */
+.dark {
+  --color-surface-primary: #0c0c14;
+  --color-surface-secondary: #12121c;
+  --color-surface-tertiary: #1a1a28;
+  --color-surface-elevated: #161622;
+  --color-surface-hover: #1e1e2e;
+  --color-surface-active: #26263a;
+
+  --color-border-primary: #2a2a3e;
+  --color-border-secondary: #1f1f30;
+  --color-border-focus: #818cf8;
+
+  /* Dark theme text - all meet WCAG AA on #0c0c14 */
+  --color-text-primary: #ededf0;       /* ~15:1 on dark bg */
+  --color-text-secondary: #a0a0b4;     /* ~6.5:1 on dark bg */
+  --color-text-tertiary: #6b6b82;      /* ~3.5:1 on dark bg */
+  --color-text-quaternary: #4a4a60;    /* placeholder text */
+  --color-text-inverse: #0c0c14;
+
+  --color-accent: #818cf8;
+  --color-accent-hover: #6d78f4;
+  --color-accent-text: #0c0c14;
+
+  --color-success: #34d399;
+  --color-error: #f87171;
+  --color-warning: #fbbf24;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--color-surface-primary);
+  color: var(--color-text-primary);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-primary);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-tertiary);
+}
+
+textarea.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+textarea.no-scrollbar {
+  scrollbar-width: none;
+}
+
+/* Markdown rendering in chat */
+.prose-kuro {
+  color: var(--color-text-primary);
+  line-height: 1.6;
+}
+
+.prose-kuro p {
+  margin: 0.5em 0;
+}
+
+.prose-kuro p:first-child {
+  margin-top: 0;
+}
+
+.prose-kuro p:last-child {
+  margin-bottom: 0;
+}
+
+.prose-kuro h1, .prose-kuro h2, .prose-kuro h3 {
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 1em 0 0.4em;
+}
+
+.prose-kuro h1:first-child, .prose-kuro h2:first-child, .prose-kuro h3:first-child {
+  margin-top: 0;
+}
+
+.prose-kuro h1 { font-size: 1.1em; }
+.prose-kuro h2 { font-size: 1.05em; }
+.prose-kuro h3 { font-size: 1em; }
+
+.prose-kuro strong {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.prose-kuro em {
+  font-style: italic;
+}
+
+.prose-kuro ul, .prose-kuro ol {
+  margin: 0.4em 0;
+  padding-left: 1.5em;
+}
+
+.prose-kuro li {
+  margin: 0.15em 0;
+}
+
+.prose-kuro li::marker {
+  color: var(--color-text-tertiary);
+}
+
+.prose-kuro code {
+  font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+  font-size: 0.85em;
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  background-color: var(--color-surface-tertiary);
+  color: var(--color-text-secondary);
+}
+
+.prose-kuro pre {
+  margin: 0.6em 0;
+  padding: 0.75em 1em;
+  border-radius: 6px;
+  background-color: var(--color-surface-tertiary);
+  border: 1px solid var(--color-border-primary);
+  overflow-x: auto;
+}
+
+.prose-kuro pre code {
+  padding: 0;
+  background: none;
+  border-radius: 0;
+  font-size: 0.82em;
+}
+
+.prose-kuro hr {
+  border: none;
+  border-top: 1px solid var(--color-border-primary);
+  margin: 0.8em 0;
+}
+
+.prose-kuro a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.prose-kuro a:hover {
+  text-decoration: underline;
+}
+
+.prose-kuro blockquote {
+  border-left: 2px solid var(--color-border-primary);
+  padding-left: 0.75em;
+  margin: 0.5em 0;
+  color: var(--color-text-secondary);
+}
+
+.prose-kuro table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  font-size: 0.9em;
+}
+
+.prose-kuro th, .prose-kuro td {
+  padding: 0.35em 0.6em;
+  border: 1px solid var(--color-border-primary);
+  text-align: left;
+}
+
+.prose-kuro th {
+  font-weight: 600;
+  background-color: var(--color-surface-secondary);
+}

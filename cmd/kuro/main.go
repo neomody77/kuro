@@ -1,0 +1,175 @@
+package main
+
+import (
+	"embed"
+	"io/fs"
+	"log"
+	"os"
+	"path/filepath"
+
+	"github.com/neomody77/kuro/internal/api"
+	"github.com/neomody77/kuro/internal/auth"
+	"github.com/neomody77/kuro/internal/chat"
+	"github.com/neomody77/kuro/internal/config"
+	"github.com/neomody77/kuro/internal/credential"
+	"github.com/neomody77/kuro/internal/document"
+	"github.com/neomody77/kuro/internal/gitstore"
+	"github.com/neomody77/kuro/internal/pipeline"
+	"github.com/neomody77/kuro/internal/provider"
+	"github.com/neomody77/kuro/internal/server"
+	"github.com/neomody77/kuro/internal/settings"
+	"github.com/neomody77/kuro/internal/skill"
+)
+
+//go:embed ui
+var uiAssets embed.FS
+
+// credentialAdapter wraps credential.Store to implement pipeline.CredentialResolver.
+type credentialAdapter struct {
+	store *credential.Store
+}
+
+func (a *credentialAdapter) Resolve(id string) (map[string]string, error) {
+	cred, err := a.store.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	return cred.Data, nil
+}
+
+func main() {
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	tokens := auth.ParseUserTokens(os.Getenv("USER_TOKENS"))
+	if len(tokens) == 0 {
+		log.Println("No USER_TOKENS set, running in single-user mode")
+	} else {
+		log.Printf("Loaded %d user(s)", len(tokens))
+	}
+
+	srv := server.New(cfg, tokens)
+
+	// Initialize default user data directories
+	defaultUserDir := filepath.Join(cfg.DataDir, "users", "default")
+	defaultRepoDir := filepath.Join(defaultUserDir, "repo")
+	os.MkdirAll(defaultRepoDir, 0o755)
+	os.MkdirAll(filepath.Join(defaultRepoDir, "credentials"), 0o755)
+	os.MkdirAll(filepath.Join(defaultRepoDir, "documents"), 0o755)
+
+	// Initialize git store for default user (auto-init if needed)
+	git, err := gitstore.Init(defaultRepoDir)
+	if err != nil {
+		log.Printf("Warning: could not init git repo: %v", err)
+	}
+
+	// Initialize master key (auto-generate if not exists)
+	keyPath := filepath.Join(defaultUserDir, "master.key")
+	masterKey, err := credential.LoadMasterKey(keyPath)
+	if err != nil {
+		masterKey, err = credential.GenerateMasterKey(keyPath)
+		if err != nil {
+			log.Printf("Warning: could not create master key: %v", err)
+		} else {
+			log.Println("Generated new master key for default user")
+		}
+	}
+
+	// Create stores
+	var credStore *credential.Store
+	if masterKey != nil {
+		credStore = credential.NewStore(filepath.Join(defaultRepoDir, "credentials"), masterKey, git)
+	}
+	docStore := document.NewStore(filepath.Join(defaultRepoDir, "documents"), git)
+
+	// Set up skill registry with core skills
+	registry := skill.NewRegistry(nil)
+	pipelinesDir := filepath.Join(defaultRepoDir, "pipelines")
+	os.MkdirAll(pipelinesDir, 0o755)
+	skill.RegisterDefaults(registry, skill.CoreConfig{
+		WorkspaceDir:    cfg.DataDir,
+		DocumentsDir:    cfg.DataDir,
+		PipelinesDir:    pipelinesDir,
+		CredentialStore: credStore,
+		DocumentStore:   docStore,
+	})
+
+	// Set up pipeline executor with n8n node handlers
+	executionsDir := filepath.Join(defaultRepoDir, "executions")
+	os.MkdirAll(executionsDir, 0o755)
+	execStore := pipeline.NewJSONExecutionStore(executionsDir)
+	executor := pipeline.NewExecutor(execStore)
+
+	// Register n8n-compatible node handlers
+	executor.RegisterNodeHandler("n8n-nodes-base.emailReadImap", &pipeline.ImapTriggerHandler{})
+	executor.RegisterNodeHandler("n8n-nodes-base.if", &pipeline.IfHandler{})
+	executor.RegisterNodeHandler("n8n-nodes-base.emailSend", &pipeline.SmtpSendHandler{})
+	executor.RegisterNodeHandler("n8n-nodes-base.cron", &pipeline.CronTriggerHandler{})
+	executor.RegisterNodeHandler("n8n-nodes-base.scheduleTrigger", &pipeline.CronTriggerHandler{})
+
+	// Wire credential resolver
+	if credStore != nil {
+		executor.SetCredentialResolver(&credentialAdapter{store: credStore})
+	}
+
+	// Set up scheduler and register active trigger workflows
+	workflowStore := pipeline.NewWorkflowStore(pipelinesDir)
+	scheduler := pipeline.NewScheduler(executor, workflowStore)
+	scheduler.Start()
+	scheduler.RegisterActiveWorkflows()
+
+	// Load settings store
+	settingsStore := settings.NewStore(filepath.Join(cfg.DataDir, "settings.yaml"))
+
+	// Load provider from settings — no env var fallback
+	var aiProvider provider.Provider
+	var aiModel string
+	if full := settingsStore.GetFull(); full.ActiveModel.ProviderID == "" {
+		log.Printf("WARNING: No active model configured. Open Settings to add a provider.")
+	} else if p, ok := settingsStore.GetProvider(full.ActiveModel.ProviderID); !ok || p.APIKey == "" {
+		log.Printf("WARNING: Provider %q not found or missing API key. Open Settings to fix.", full.ActiveModel.ProviderID)
+	} else {
+		aiProvider = provider.NewOpenAIProvider(p.BaseURL, p.APIKey)
+		aiModel = full.ActiveModel.Model
+		log.Printf("AI provider: %s (model: %s)", p.Name, aiModel)
+	}
+
+	chatSvc := chat.NewService(registry, aiProvider, aiModel, cfg.DataDir)
+
+	onSettingsChanged := func() {
+		full := settingsStore.GetFull()
+		if full.ActiveModel.ProviderID == "" {
+			return
+		}
+		p, ok := settingsStore.GetProvider(full.ActiveModel.ProviderID)
+		if !ok || p.APIKey == "" {
+			return
+		}
+		newProvider := provider.NewOpenAIProvider(p.BaseURL, p.APIKey)
+		chatSvc.SetProvider(newProvider, full.ActiveModel.Model)
+		log.Printf("AI provider updated: %s (model: %s)", p.Name, full.ActiveModel.Model)
+	}
+
+	// Register all API routes
+	api.Register(srv, &api.Deps{
+		DataDir:           cfg.DataDir,
+		ChatService:       chatSvc,
+		SkillRegistry:     registry,
+		SettingsStore:     settingsStore,
+		OnSettingsChanged: onSettingsChanged,
+		Executor:          executor,
+		ExecStore:         execStore,
+	})
+
+	uiFS, err := fs.Sub(uiAssets, "ui")
+	if err != nil {
+		log.Fatalf("Failed to load embedded UI: %v", err)
+	}
+	srv.ServeUI(uiFS)
+
+	if err := srv.ListenAndServe(); err != nil {
+		log.Fatalf("Server error: %v", err)
+	}
+}
