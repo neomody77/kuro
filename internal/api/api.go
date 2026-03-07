@@ -3,11 +3,17 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"google.golang.org/adk/agent"
+	"google.golang.org/adk/runner"
+	"google.golang.org/adk/session"
+	"google.golang.org/genai"
 
 	"github.com/neomody77/kuro/internal/auth"
 	"github.com/neomody77/kuro/internal/chat"
@@ -29,6 +35,10 @@ type Deps struct {
 	SkillRegistry     *skill.Registry
 	SettingsStore     *settings.Store
 	OnSettingsChanged func()
+
+	// ADK agent loop
+	ADKRunner     *runner.Runner
+	ADKSessionSvc session.Service
 }
 
 // Register registers all API routes on the server.
@@ -108,6 +118,7 @@ func Register(srv *server.Server, deps *Deps) {
 	srv.HandleAPI("POST /api/chat/sessions", withDeps(deps, handleCreateSession))
 	srv.HandleAPI("DELETE /api/chat/sessions/{id}", withDeps(deps, handleDeleteSession))
 	srv.HandleAPI("POST /api/chat", withDeps(deps, handleChat))
+	srv.HandleAPI("POST /api/chat/stream", withDeps(deps, handleChatStream))
 	srv.HandleAPI("GET /api/chat/history", withDeps(deps, handleChatHistory))
 	srv.HandleAPI("POST /api/chat/confirm", withDeps(deps, handleChatConfirm))
 
@@ -906,6 +917,134 @@ func handleChatHistory(deps *Deps, w http.ResponseWriter, r *http.Request) {
 	sessionID := r.URL.Query().Get("session_id")
 	history := deps.ChatService.GetHistory(userID, sessionID)
 	server.WriteJSON(w, http.StatusOK, history)
+}
+
+func handleChatStream(deps *Deps, w http.ResponseWriter, r *http.Request) {
+	if deps.ADKRunner == nil {
+		server.WriteError(w, http.StatusServiceUnavailable, "agent not configured")
+		return
+	}
+	var payload struct {
+		Message   string `json:"message"`
+		SessionID string `json:"session_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		server.WriteError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if payload.Message == "" {
+		server.WriteError(w, http.StatusBadRequest, "message is required")
+		return
+	}
+
+	userID := auth.GetUser(r.Context())
+
+	// Ensure ADK session exists
+	adkSessionID := payload.SessionID
+	if adkSessionID == "" {
+		adkSessionID = "default"
+	}
+	_, err := deps.ADKSessionSvc.Get(r.Context(), &session.GetRequest{
+		AppName:   "kuro",
+		UserID:    userID,
+		SessionID: adkSessionID,
+	})
+	if err != nil {
+		// Create session if it doesn't exist
+		_, err = deps.ADKSessionSvc.Create(r.Context(), &session.CreateRequest{
+			AppName:   "kuro",
+			UserID:    userID,
+			SessionID: adkSessionID,
+		})
+		if err != nil {
+			server.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("create session: %v", err))
+			return
+		}
+	}
+
+	// SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		server.WriteError(w, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+
+	msg := genai.NewContentFromText(payload.Message, genai.RoleUser)
+
+	events := deps.ADKRunner.Run(r.Context(), userID, adkSessionID, msg, agent.RunConfig{
+		StreamingMode: agent.StreamingModeSSE,
+	})
+
+	for ev, err := range events {
+		if err != nil {
+			writeSSE(w, flusher, map[string]any{"type": "error", "error": err.Error()})
+			break
+		}
+		if ev == nil {
+			continue
+		}
+
+		sseEvent := eventToSSE(ev)
+		if sseEvent != nil {
+			writeSSE(w, flusher, sseEvent)
+		}
+	}
+
+	writeSSE(w, flusher, map[string]any{"type": "done"})
+}
+
+func writeSSE(w http.ResponseWriter, flusher http.Flusher, data any) {
+	jsonData, _ := json.Marshal(data)
+	fmt.Fprintf(w, "data: %s\n\n", jsonData)
+	flusher.Flush()
+}
+
+func eventToSSE(ev *session.Event) map[string]any {
+	if ev.Content == nil {
+		return nil
+	}
+
+	for _, part := range ev.Content.Parts {
+		if part == nil {
+			continue
+		}
+
+		if part.Text != "" {
+			if ev.Partial {
+				return map[string]any{"type": "text_delta", "text": part.Text}
+			}
+			// Non-partial text is the TurnComplete summary — skip it since
+			// the frontend already assembled the text from text_delta events.
+			continue
+		}
+
+		if part.FunctionCall != nil {
+			fc := part.FunctionCall
+			return map[string]any{
+				"type":       "tool_call",
+				"tool_name":  fc.Name,
+				"tool_input": fc.Args,
+				"call_id":    fc.ID,
+			}
+		}
+
+		if part.FunctionResponse != nil {
+			fr := part.FunctionResponse
+			return map[string]any{
+				"type":        "tool_result",
+				"tool_name":   fr.Name,
+				"tool_output": fr.Response,
+				"call_id":     fr.ID,
+			}
+		}
+	}
+
+	return nil
 }
 
 func handleChatConfirm(deps *Deps, w http.ResponseWriter, r *http.Request) {

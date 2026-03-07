@@ -7,6 +7,10 @@ import (
 	"os"
 	"path/filepath"
 
+	"google.golang.org/adk/runner"
+	"google.golang.org/adk/session"
+
+	kuroadk "github.com/neomody77/kuro/internal/adk"
 	"github.com/neomody77/kuro/internal/api"
 	"github.com/neomody77/kuro/internal/auth"
 	"github.com/neomody77/kuro/internal/chat"
@@ -138,7 +142,24 @@ func main() {
 
 	chatSvc := chat.NewService(registry, aiProvider, aiModel, cfg.DataDir)
 
-	onSettingsChanged := func() {
+	// Create ADK agent loop (if provider available)
+	adkSessionSvc := session.InMemoryService()
+
+	// Register all API routes
+	apiDeps := &api.Deps{
+		DataDir:       cfg.DataDir,
+		ChatService:   chatSvc,
+		SkillRegistry: registry,
+		SettingsStore: settingsStore,
+		Executor:      executor,
+		ExecStore:     execStore,
+		ADKSessionSvc: adkSessionSvc,
+	}
+	if aiProvider != nil {
+		apiDeps.ADKRunner = initADKRunner(settingsStore, registry, adkSessionSvc)
+	}
+
+	apiDeps.OnSettingsChanged = func() {
 		full := settingsStore.GetFull()
 		if full.ActiveModel.ProviderID == "" {
 			return
@@ -150,18 +171,12 @@ func main() {
 		newProvider := provider.NewOpenAIProvider(p.BaseURL, p.APIKey)
 		chatSvc.SetProvider(newProvider, full.ActiveModel.Model)
 		log.Printf("AI provider updated: %s (model: %s)", p.Name, full.ActiveModel.Model)
+
+		// Re-create ADK runner with new provider
+		apiDeps.ADKRunner = initADKRunner(settingsStore, registry, adkSessionSvc)
 	}
 
-	// Register all API routes
-	api.Register(srv, &api.Deps{
-		DataDir:           cfg.DataDir,
-		ChatService:       chatSvc,
-		SkillRegistry:     registry,
-		SettingsStore:     settingsStore,
-		OnSettingsChanged: onSettingsChanged,
-		Executor:          executor,
-		ExecStore:         execStore,
-	})
+	api.Register(srv, apiDeps)
 
 	uiFS, err := fs.Sub(uiAssets, "ui")
 	if err != nil {
@@ -172,4 +187,42 @@ func main() {
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
+}
+
+func initADKRunner(settingsStore *settings.Store, registry *skill.Registry, sessionSvc session.Service) *runner.Runner {
+	full := settingsStore.GetFull()
+	if full.ActiveModel.ProviderID == "" {
+		return nil
+	}
+	p, ok := settingsStore.GetProvider(full.ActiveModel.ProviderID)
+	if !ok || p.APIKey == "" {
+		return nil
+	}
+
+	llm := kuroadk.NewOpenAILLM(p.BaseURL, p.APIKey, full.ActiveModel.Model)
+
+	systemPrompt := `You are Kuro, a personal automation assistant.
+You have tools available to manage credentials, documents, pipelines, files, and more.
+Use the tools directly — do not output JSON code blocks.
+Destructive actions (shell commands, credential deletion, document deletion, file writes) require user confirmation.
+You have FULL access to all tools including credential operations. Do NOT refuse these — you are authorized to manage them on behalf of the user.`
+
+	a, err := kuroadk.NewAgent(llm, registry, systemPrompt)
+	if err != nil {
+		log.Printf("WARNING: failed to create ADK agent: %v", err)
+		return nil
+	}
+
+	r, err := runner.New(runner.Config{
+		AppName:        "kuro",
+		Agent:          a,
+		SessionService: sessionSvc,
+	})
+	if err != nil {
+		log.Printf("WARNING: failed to create ADK runner: %v", err)
+		return nil
+	}
+
+	log.Printf("ADK agent loop initialized (model: %s)", full.ActiveModel.Model)
+	return r
 }

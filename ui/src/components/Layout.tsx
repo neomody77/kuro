@@ -64,7 +64,13 @@ function Layout() {
 
   async function handleNewSession() {
     try {
-      await chatStore.createSession()
+      // Reuse an existing empty "New Chat" session instead of creating duplicates
+      const empty = sessions.find(s => s.title === 'New Chat')
+      if (empty) {
+        chatStore.setActive(empty.id)
+      } else {
+        await chatStore.createSession()
+      }
       if (!isChat) navigate('/chat')
     } catch { /* ignore */ }
   }

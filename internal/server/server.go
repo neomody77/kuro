@@ -67,7 +67,7 @@ func (s *Server) ListenAndServe() error {
 		Addr:         addr,
 		Handler:      withCORS(s.mux),
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		WriteTimeout: 0, // disabled; SSE handlers manage their own deadlines
 		IdleTimeout:  60 * time.Second,
 	}
 

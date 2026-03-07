@@ -8,6 +8,9 @@
 # Frontend (generates cmd/kuro/ui/ for go:embed)
 cd ui && npm install && npm run build && cd ..
 
+# Copy UI assets for embedding
+rm -rf cmd/kuro/ui && cp -r ui/dist cmd/kuro/ui
+
 # Backend
 go build -o kuro ./cmd/kuro/
 go build -o kuro-cli ./cmd/kuro-cli/
@@ -19,36 +22,52 @@ go test ./...
 
 ## Recently Completed
 
+### ADK Agent Loop (Phase 0-4)
+
+Multi-turn agent loop via Google ADK Go v0.6.0. Replaces single-round skill execution.
+
+**Architecture:**
+- `internal/adk/openai_llm.go` — OpenAI-compatible LLM adapter (`model.LLM` interface)
+- `internal/adk/skill_tool.go` — Skill → ADK `tool.Tool` adapter
+- `internal/adk/runner.go` — Agent + Runner factory functions
+- `POST /api/chat/stream` — SSE endpoint using ADK Runner
+- `ui/src/hooks/useChatStream.ts` — React SSE consumer hook
+
+**Capabilities gained:**
+- Multi-turn tool calling (LLM ↔ tool automatic loop)
+- Native function calling (no more markdown parsing)
+- SSE streaming output with real-time text deltas
+- OpenAI-compatible + Gemini dual provider support
+- Collapsible tool call cards (name + status collapsed, JSON input/output expanded)
+- Streaming dots indicator while waiting for response
+
+**Key implementation details:**
+- `processSSE()` accumulates streamed text and emits a `TurnComplete` response with full text, so ADK session stores the complete assistant reply for multi-turn context
+- `eventToSSE()` skips non-partial text events to avoid duplicating content already sent via deltas
+- `WriteTimeout: 0` on HTTP server to prevent SSE streams from being cut off
+- In-memory ADK sessions (not persisted across restarts)
+
+### Chat UX Improvements
+- Session reuse: "+ New Chat" reuses existing empty "New Chat" sessions instead of creating duplicates
+- Session title: only updated on first message (when title is "New Chat")
+- Streaming indicator: pulsing dots always visible while `msg.streaming` is true
+
 ### Credential ID-Based Storage
 - All credential operations use `id` as primary key, `name` is display only
 - Files named `{id}.yaml`, all CRUD by ID
 - `Save` returns `(string, error)` — auto-generates `cred_*` ID if empty
 - `CredentialResolver` interface: single `Resolve(id string)` method
-- No name-based fallback anywhere — AI uses `list` to find ID by name
-- Removed all migration/compat code (`Migrate()`, `GetByName()`, `MigrateCredentialRefs()`)
 
 ### Settings / Provider Configuration
 - Provider config persisted in `~/.kuro/settings.yaml`
 - No env var fallback — must configure via Settings UI
-- Server logs warning and starts without AI if no provider configured
-- `onSettingsChanged` callback hot-swaps provider at runtime
-- Settings API: GET/PUT active model, POST/DELETE/test providers
+- `onSettingsChanged` callback hot-swaps provider + re-creates ADK runner at runtime
 - API keys masked in GET response, preserved on masked-key updates
-
-### Chat Input
-- `react-textarea-autosize` replaces manual resize hack
-- `minRows=1`, `maxRows=6`, natural container growth
-
-### Chat Session Persistence (JSONL)
-- Session index: `{dataDir}/users/{userID}/chat/sessions.jsonl`
-- Message log: `{dataDir}/users/{userID}/chat/{sessionID}.jsonl` (append-only)
-- Auto-loads from disk, user isolation, memory-only fallback
 
 ### n8n-Compatible Workflow Engine
 - Types: `Workflow{id, name, nodes[], connections{}, settings{}}`
 - DAG executor with topological sort, 1:N / N:1 connections
 - IMAP IDLE trigger (RFC 2177), cron trigger
-- Skip empty trigger executions
 - Pipeline CRUD via skill + API + UI
 
 ### Unified Skill Pattern
@@ -65,16 +84,18 @@ go test ./...
 ## Architecture
 
 ### Key Paths
-- `cmd/kuro/main.go` — entry point, wiring
-- `internal/chat/` — chat service, system prompt
+- `cmd/kuro/main.go` — entry point, wiring, ADK runner init
+- `internal/adk/` — ADK integration (OpenAI LLM adapter, Skill→Tool adapter, Runner)
+- `internal/chat/` — chat service, system prompt, session persistence (JSONL)
 - `internal/skill/` — skill registry + built-in handlers
 - `internal/pipeline/` — workflow store, parser, executor, scheduler
 - `internal/credential/` — AES-256-GCM encrypted vault (git-versioned)
 - `internal/document/` — git-versioned markdown store
-- `internal/provider/` — OpenAI-compatible LLM provider
+- `internal/provider/` — OpenAI-compatible LLM provider (used by Settings test)
 - `internal/settings/` — YAML settings persistence
-- `internal/api/` — HTTP API routes
+- `internal/api/` — HTTP API routes + SSE streaming
 - `ui/src/pages/` — React pages
+- `ui/src/hooks/` — React hooks (useChatStream, useTheme)
 
 ### Data Layout
 ```
@@ -92,13 +113,11 @@ go test ./...
       {sessionID}.jsonl
 ```
 
-## In Progress
-
-### Agent Loop (agentic chat)
-- Current: single-round skill execution
-- Goal: multi-round while loop (AI -> skill call -> result -> AI continues)
-- Researching: NextClaw, OpenClaw, Gemini CLI, Codex, Claude Code, Google ADK, Vercel AI SDK, OpenAI Agents SDK, LangChain/LangGraph, Microsoft SK/AutoGen
-
 ## Known Issues
-- No agent loop — AI only executes one skill call per message
+- ADK sessions are in-memory only — lost on server restart (browser sessions may get stale)
 - Plugin architecture for skills not yet implemented
+
+## Future
+- Phase 5: GitStore session adapter (persist ADK sessions)
+- HITL: `RequestConfirmation` for destructive tool calls via SSE
+- Multi-agent orchestration (ADK supports but not yet used)
