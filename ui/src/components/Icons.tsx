@@ -172,3 +172,15 @@ export const Sun = multiPathIcon(
 export const Moon = icon(
   'M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'
 )
+
+export const PanelLeftClose = multiPathIcon(
+  'M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z',
+  'M9 4v16',
+  'M15 10l-2 2 2 2'
+)
+
+export const PanelLeftOpen = multiPathIcon(
+  'M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z',
+  'M9 4v16',
+  'M14 10l2 2-2 2'
+)
