@@ -214,6 +214,16 @@ func (s *Store) Search(query string) ([]Doc, error) {
 	return results, nil
 }
 
+// IsDir reports whether the given relative path is a directory.
+func (s *Store) IsDir(relPath string) bool {
+	absPath, err := s.resolve(relPath)
+	if err != nil {
+		return false
+	}
+	info, err := os.Stat(absPath)
+	return err == nil && info.IsDir()
+}
+
 // resolve converts a relative document path to an absolute path,
 // ensuring it stays within the store directory.
 func (s *Store) resolve(relPath string) (string, error) {

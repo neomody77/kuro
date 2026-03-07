@@ -785,6 +785,21 @@ func handleListDocuments(deps *Deps, w http.ResponseWriter, r *http.Request) {
 func handleGetDocument(deps *Deps, w http.ResponseWriter, r *http.Request) {
 	docPath := r.PathValue("path")
 	store := docStore(deps.DataDir, r)
+
+	// If the path is a directory, return its listing instead.
+	if store.IsDir(docPath) {
+		docs, err := store.List(docPath)
+		if err != nil {
+			server.WriteError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if docs == nil {
+			docs = []document.Doc{}
+		}
+		server.WriteJSON(w, http.StatusOK, docs)
+		return
+	}
+
 	doc, err := store.Get(docPath)
 	if err != nil {
 		server.WriteError(w, http.StatusNotFound, err.Error())

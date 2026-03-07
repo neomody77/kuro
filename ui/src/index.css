@@ -230,3 +230,27 @@ textarea.no-scrollbar {
   font-weight: 600;
   background-color: var(--color-surface-secondary);
 }
+
+/* BlockNote editor integration */
+.blocknote-wrapper {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.blocknote-wrapper .bn-container {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.blocknote-wrapper .bn-editor {
+  padding: 1rem 1.5rem;
+  color: var(--color-text-primary);
+}
+
+/* react-arborist reset — remove default focus outlines */
+[role="treeitem"]:focus {
+  outline: none;
+}
+
+[role="tree"]:focus {
+  outline: none;
+}

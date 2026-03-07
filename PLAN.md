@@ -90,8 +90,10 @@
 
 ## UI
 - [ ] Chat 输入框 react-textarea-autosize
-- [ ] BlockNote 文档编辑器
-- [ ] react-arborist 文件树
+- [ ] Chat UI skill 调用卡片：默认折叠显示 skill 名称和状态，展开显示完整结果；JSON 结果自动 format
+- [x] BlockNote 文档编辑器（默认编辑模式，Cmd+S 保存，markdown 双向转换）
+- [x] react-arborist 文件树（虚拟化渲染，搜索过滤，右键菜单，文件类型图标）
+- [x] 文档 API 目录列表（GET /api/documents/{dir} 返回子项，前端递归获取完整树）
 - [ ] Workflow visual editor (node graph)
 - [ ] Execution logs viewer
 - [ ] DataTable UI
