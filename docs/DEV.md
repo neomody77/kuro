@@ -111,13 +111,30 @@ Multi-turn agent loop via Google ADK Go v0.6.0. Replaces single-round skill exec
     chat/
       sessions.jsonl
       {sessionID}.jsonl
+    adk-sessions/
+      {sessionID}/
+        session.json           # Session metadata + state
+        events.jsonl           # Append-only event log
 ```
 
+### File-Based ADK Session Persistence
+- `internal/adk/session_store.go` — `FileSessionService` wraps `InMemoryService` + file persistence
+- Sessions stored as JSON: `{dataDir}/users/{userID}/adk-sessions/{sessionID}/session.json`
+- Events stored as append-only JSONL: `events.jsonl`
+- On startup: scans disk, replays events into in-memory service
+- Atomic writes for session.json (write-to-tmp + rename)
+- Graceful degradation: falls back to in-memory if file store fails
+
+### HITL (Human-in-the-Loop) Confirmation
+- Destructive skills (shell, credential:delete, document:delete, file:write/delete, pipeline:delete) require user approval
+- Uses ADK's native `ctx.ToolConfirmation()` / `ctx.RequestConfirmation()` in `skillToolWrapper.Run()`
+- Backend detects `adk_request_confirmation` FunctionCall events → emits `confirm_request` SSE event
+- `POST /api/chat/stream/confirm` sends user's decision back as `FunctionResponse`
+- Frontend: tool call card shows "Needs Approval" badge + Approve/Reject buttons
+- Rejection returns "rejected by user" to LLM; approval executes the action
+
 ## Known Issues
-- ADK sessions are in-memory only — lost on server restart (browser sessions may get stale)
 - Plugin architecture for skills not yet implemented
 
 ## Future
-- Phase 5: GitStore session adapter (persist ADK sessions)
-- HITL: `RequestConfirmation` for destructive tool calls via SSE
 - Multi-agent orchestration (ADK supports but not yet used)

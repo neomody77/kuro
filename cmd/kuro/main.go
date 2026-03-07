@@ -11,6 +11,7 @@ import (
 	"google.golang.org/adk/session"
 
 	kuroadk "github.com/neomody77/kuro/internal/adk"
+
 	"github.com/neomody77/kuro/internal/api"
 	"github.com/neomody77/kuro/internal/auth"
 	"github.com/neomody77/kuro/internal/chat"
@@ -142,8 +143,18 @@ func main() {
 
 	chatSvc := chat.NewService(registry, aiProvider, aiModel, cfg.DataDir)
 
-	// Create ADK agent loop (if provider available)
-	adkSessionSvc := session.InMemoryService()
+	// Create ADK session service with file persistence
+	adkSessionSvc, err := kuroadk.NewFileSessionService(cfg.DataDir)
+	if err != nil {
+		log.Printf("Warning: ADK session store init failed, falling back to in-memory: %v", err)
+		adkSessionSvc = nil
+	}
+	var adkSessionSvcIface session.Service
+	if adkSessionSvc != nil {
+		adkSessionSvcIface = adkSessionSvc
+	} else {
+		adkSessionSvcIface = session.InMemoryService()
+	}
 
 	// Register all API routes
 	apiDeps := &api.Deps{
@@ -153,10 +164,10 @@ func main() {
 		SettingsStore: settingsStore,
 		Executor:      executor,
 		ExecStore:     execStore,
-		ADKSessionSvc: adkSessionSvc,
+		ADKSessionSvc: adkSessionSvcIface,
 	}
 	if aiProvider != nil {
-		apiDeps.ADKRunner = initADKRunner(settingsStore, registry, adkSessionSvc)
+		apiDeps.ADKRunner = initADKRunner(settingsStore, registry, adkSessionSvcIface)
 	}
 
 	apiDeps.OnSettingsChanged = func() {
@@ -173,7 +184,7 @@ func main() {
 		log.Printf("AI provider updated: %s (model: %s)", p.Name, full.ActiveModel.Model)
 
 		// Re-create ADK runner with new provider
-		apiDeps.ADKRunner = initADKRunner(settingsStore, registry, adkSessionSvc)
+		apiDeps.ADKRunner = initADKRunner(settingsStore, registry, adkSessionSvcIface)
 	}
 
 	api.Register(srv, apiDeps)

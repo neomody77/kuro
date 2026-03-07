@@ -37,8 +37,8 @@
 ## In Progress / Next
 
 ### ADK Session 持久化
-- [ ] GitStore session adapter（persist ADK sessions across restarts）
-- [ ] HITL: `RequestConfirmation` for destructive tool calls via SSE
+- [x] File-based session adapter（persist ADK sessions across restarts）
+- [x] HITL: `RequestConfirmation` for destructive tool calls via SSE
 
 ### 持久化
 - [ ] Pipeline 执行结果迁移至 SQLite

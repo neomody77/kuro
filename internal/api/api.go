@@ -13,6 +13,7 @@ import (
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
+	"google.golang.org/adk/tool/toolconfirmation"
 	"google.golang.org/genai"
 
 	"github.com/neomody77/kuro/internal/auth"
@@ -119,6 +120,7 @@ func Register(srv *server.Server, deps *Deps) {
 	srv.HandleAPI("DELETE /api/chat/sessions/{id}", withDeps(deps, handleDeleteSession))
 	srv.HandleAPI("POST /api/chat", withDeps(deps, handleChat))
 	srv.HandleAPI("POST /api/chat/stream", withDeps(deps, handleChatStream))
+	srv.HandleAPI("POST /api/chat/stream/confirm", withDeps(deps, handleChatStreamConfirm))
 	srv.HandleAPI("GET /api/chat/history", withDeps(deps, handleChatHistory))
 	srv.HandleAPI("POST /api/chat/confirm", withDeps(deps, handleChatConfirm))
 
@@ -998,6 +1000,78 @@ func handleChatStream(deps *Deps, w http.ResponseWriter, r *http.Request) {
 	writeSSE(w, flusher, map[string]any{"type": "done"})
 }
 
+func handleChatStreamConfirm(deps *Deps, w http.ResponseWriter, r *http.Request) {
+	if deps.ADKRunner == nil {
+		server.WriteError(w, http.StatusServiceUnavailable, "agent not configured")
+		return
+	}
+	var payload struct {
+		SessionID string `json:"session_id"`
+		CallID    string `json:"call_id"`
+		Confirmed bool   `json:"confirmed"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		server.WriteError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if payload.CallID == "" {
+		server.WriteError(w, http.StatusBadRequest, "call_id is required")
+		return
+	}
+
+	userID := auth.GetUser(r.Context())
+	adkSessionID := payload.SessionID
+	if adkSessionID == "" {
+		adkSessionID = "default"
+	}
+
+	// Build FunctionResponse for adk_request_confirmation
+	content := &genai.Content{
+		Role: string(genai.RoleUser),
+		Parts: []*genai.Part{{
+			FunctionResponse: &genai.FunctionResponse{
+				Name: toolconfirmation.FunctionCallName,
+				ID:   payload.CallID,
+				Response: map[string]any{
+					"confirmed": payload.Confirmed,
+				},
+			},
+		}},
+	}
+
+	// SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		server.WriteError(w, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+
+	events := deps.ADKRunner.Run(r.Context(), userID, adkSessionID, content, agent.RunConfig{
+		StreamingMode: agent.StreamingModeSSE,
+	})
+
+	for ev, err := range events {
+		if err != nil {
+			writeSSE(w, flusher, map[string]any{"type": "error", "error": err.Error()})
+			break
+		}
+		if ev == nil {
+			continue
+		}
+		sseEvent := eventToSSE(ev)
+		if sseEvent != nil {
+			writeSSE(w, flusher, sseEvent)
+		}
+	}
+
+	writeSSE(w, flusher, map[string]any{"type": "done"})
+}
+
 func writeSSE(w http.ResponseWriter, flusher http.Flusher, data any) {
 	jsonData, _ := json.Marshal(data)
 	fmt.Fprintf(w, "data: %s\n\n", jsonData)
@@ -1025,6 +1099,26 @@ func eventToSSE(ev *session.Event) map[string]any {
 
 		if part.FunctionCall != nil {
 			fc := part.FunctionCall
+			if fc.Name == toolconfirmation.FunctionCallName {
+				// HITL confirmation request
+				originalCall, err := toolconfirmation.OriginalCallFrom(fc)
+				if err != nil {
+					continue
+				}
+				hint := ""
+				if args, ok := fc.Args["toolConfirmation"]; ok {
+					if m, ok := args.(map[string]any); ok {
+						hint, _ = m["hint"].(string)
+					}
+				}
+				return map[string]any{
+					"type":      "confirm_request",
+					"call_id":   fc.ID,
+					"tool_name": originalCall.Name,
+					"tool_input": originalCall.Args,
+					"hint":      hint,
+				}
+			}
 			return map[string]any{
 				"type":       "tool_call",
 				"tool_name":  fc.Name,

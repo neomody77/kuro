@@ -27,11 +27,11 @@ func NewAgent(llm model.LLM, registry *skill.Registry, systemPrompt string) (age
 	})
 }
 
-// NewRunner creates an ADK Runner with in-memory session storage.
-func NewRunner(a agent.Agent) (*runner.Runner, error) {
+// NewRunner creates an ADK Runner with the given session service.
+func NewRunner(a agent.Agent, sessionSvc session.Service) (*runner.Runner, error) {
 	return runner.New(runner.Config{
 		AppName:        "kuro",
 		Agent:          a,
-		SessionService: session.InMemoryService(),
+		SessionService: sessionSvc,
 	})
 }

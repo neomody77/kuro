@@ -77,10 +77,55 @@ func (t *skillToolWrapper) Declaration() *genai.FunctionDeclaration {
 	return decl
 }
 
+// destructiveSkills lists skill names (or "skill:action" patterns) requiring HITL confirmation.
+var destructiveSkills = map[string]bool{
+	"shell":             true,
+	"credential:delete": true,
+	"document:delete":   true,
+	"file:write":        true,
+	"file:delete":       true,
+	"pipeline:delete":   true,
+}
+
+func isDestructive(skillName string, params map[string]any) bool {
+	if destructiveSkills[skillName] {
+		return true
+	}
+	if action, ok := params["action"].(string); ok {
+		return destructiveSkills[skillName+":"+action]
+	}
+	return false
+}
+
 func (t *skillToolWrapper) Run(ctx tool.Context, args any) (map[string]any, error) {
 	params, ok := args.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("skill %q: unexpected args type %T", t.skill.Name, args)
+	}
+
+	// HITL: check if this is a destructive action
+	if isDestructive(t.skill.Name, params) {
+		if confirmation := ctx.ToolConfirmation(); confirmation != nil {
+			if !confirmation.Confirmed {
+				return map[string]any{"status": "rejected", "message": "Action rejected by user"}, nil
+			}
+			// Confirmed — fall through to execute
+		} else {
+			// No confirmation yet — request one
+			action := t.skill.Name
+			if a, ok := params["action"].(string); ok {
+				action = t.skill.Name + ":" + a
+			}
+			hint := fmt.Sprintf("Execute %s?", action)
+			if err := ctx.RequestConfirmation(hint, map[string]any{
+				"skill":  t.skill.Name,
+				"params": params,
+			}); err != nil {
+				return nil, err
+			}
+			ctx.Actions().SkipSummarization = true
+			return map[string]any{"status": "awaiting_confirmation"}, nil
+		}
 	}
 
 	result, err := t.registry.Execute(context.Background(), t.skill.Name, params)

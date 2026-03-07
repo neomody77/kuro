@@ -20,7 +20,7 @@ function Chat() {
   const [error, setError] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  const { sendStream, abort, streaming } = useChatStream(setMessages)
+  const { sendStream, sendConfirmation, abort, streaming } = useChatStream(setMessages)
 
   useEffect(() => {
     chatStore.load()
@@ -87,6 +87,18 @@ function Chat() {
       }
     }
   }, [input, streaming, activeSession, sendStream])
+
+  const handleConfirm = useCallback(async (callId: string, confirmed: boolean, msgId: string) => {
+    const sid = activeSession
+    if (!sid || streaming) return
+    try {
+      await sendConfirmation(sid, callId, confirmed, msgId)
+    } catch (e) {
+      if (!(e instanceof DOMException && e.name === 'AbortError')) {
+        setError(e instanceof Error ? e.message : 'Confirmation failed')
+      }
+    }
+  }, [activeSession, streaming, sendConfirmation])
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -157,7 +169,11 @@ Send a message to start a conversation
                   {msg.toolCalls.length > 0 && (
                     <div className="mb-2 flex flex-col gap-1.5">
                       {msg.toolCalls.map((tc, j) => (
-                        <ToolCallCard key={`${tc.callId}-${j}`} toolCall={tc} />
+                        <ToolCallCard
+                          key={`${tc.callId}-${j}`}
+                          toolCall={tc}
+                          onConfirm={(callId, confirmed) => handleConfirm(callId, confirmed, msg.id)}
+                        />
                       ))}
                     </div>
                   )}
@@ -236,14 +252,22 @@ Send a message to start a conversation
   )
 }
 
-function ToolCallCard({ toolCall }: { toolCall: ToolCallEntry }) {
+function ToolCallCard({ toolCall, onConfirm }: { toolCall: ToolCallEntry; onConfirm?: (callId: string, confirmed: boolean) => void }) {
   const [expanded, setExpanded] = useState(false)
 
-  const statusColor = toolCall.status === 'calling'
-    ? 'var(--color-warning, #eab308)'
-    : toolCall.status === 'done'
-      ? 'var(--color-success, #22c55e)'
-      : 'var(--color-error, #ef4444)'
+  const statusColor =
+    toolCall.status === 'calling' ? 'var(--color-warning, #eab308)' :
+    toolCall.status === 'done' || toolCall.status === 'confirmed' ? 'var(--color-success, #22c55e)' :
+    toolCall.status === 'confirm' ? 'var(--color-accent, #6366f1)' :
+    toolCall.status === 'rejected' ? 'var(--color-text-tertiary)' :
+    'var(--color-error, #ef4444)'
+
+  const statusIcon =
+    toolCall.status === 'calling' ? null :
+    toolCall.status === 'done' || toolCall.status === 'confirmed' ? '\u2713' :
+    toolCall.status === 'confirm' ? '?' :
+    toolCall.status === 'rejected' ? '\u2717' :
+    '\u2717'
 
   // Brief summary of key params for collapsed view
   const paramSummary = summarizeParams(toolCall.input)
@@ -263,11 +287,19 @@ function ToolCallCard({ toolCall }: { toolCall: ToolCallEntry }) {
           </svg>
         ) : (
           <span style={{ color: statusColor, fontWeight: 600, fontSize: '11px' }}>
-            {toolCall.status === 'done' ? '\u2713' : '\u2717'}
+            {statusIcon}
           </span>
         )}
         <code style={{ color: 'var(--color-text-secondary)' }}>{toolCall.name}</code>
-        {paramSummary && (
+        {toolCall.status === 'confirm' && (
+          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full" style={{ backgroundColor: 'var(--color-accent)', color: '#fff' }}>
+            Needs Approval
+          </span>
+        )}
+        {toolCall.status === 'rejected' && (
+          <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>Rejected</span>
+        )}
+        {paramSummary && toolCall.status !== 'confirm' && (
           <span className="truncate" style={{ color: 'var(--color-text-quaternary)', maxWidth: '200px' }}>
             {paramSummary}
           </span>
@@ -280,6 +312,40 @@ function ToolCallCard({ toolCall }: { toolCall: ToolCallEntry }) {
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </button>
+
+      {/* Confirmation banner */}
+      {toolCall.status === 'confirm' && onConfirm && (
+        <div
+          className="px-2.5 py-2 flex items-center gap-3"
+          style={{ borderTop: '1px solid var(--color-border-secondary)', backgroundColor: 'color-mix(in srgb, var(--color-accent) 8%, transparent)' }}
+        >
+          <div className="flex-1">
+            <div className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+              {toolCall.hint || `Confirm execution of ${toolCall.name}?`}
+            </div>
+            <div className="text-[10px] mt-0.5" style={{ color: 'var(--color-text-quaternary)' }}>
+              {summarizeParams(toolCall.input)}
+            </div>
+          </div>
+          <div className="flex gap-1.5 shrink-0">
+            <button
+              onClick={(e) => { e.stopPropagation(); onConfirm(toolCall.callId, true) }}
+              className="px-2.5 py-1 rounded text-xs font-medium transition-colors"
+              style={{ backgroundColor: 'var(--color-success, #22c55e)', color: '#fff' }}
+            >
+              Approve
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onConfirm(toolCall.callId, false) }}
+              className="px-2.5 py-1 rounded text-xs font-medium transition-colors"
+              style={{ backgroundColor: 'var(--color-error, #ef4444)', color: '#fff' }}
+            >
+              Reject
+            </button>
+          </div>
+        </div>
+      )}
+
       {expanded && (
         <div className="px-2.5 pb-2 space-y-1.5" style={{ borderTop: '1px solid var(--color-border-secondary)' }}>
           <div className="pt-1.5">
