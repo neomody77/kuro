@@ -87,10 +87,6 @@ func (e *Executor) Execute(ctx context.Context, w *Workflow) (*Execution, error)
 		},
 	}
 
-	if e.execStore != nil {
-		_ = e.execStore.SaveExecution(exec)
-	}
-
 	// Track node outputs for data flow
 	nodeOutputs := make(map[string]*NodeOutput)
 
