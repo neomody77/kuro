@@ -108,3 +108,123 @@ func TestMatchesCron(t *testing.T) {
 		t.Error("should not match DOW=1 (Monday)")
 	}
 }
+
+func TestScheduler_StartStop(t *testing.T) {
+	executor := NewExecutor(nil)
+	s := NewScheduler(executor, nil)
+	s.Start()
+	s.Stop()
+	// If we reach here without panic, the test passes.
+}
+
+func TestScheduler_RegisterUnregister(t *testing.T) {
+	executor := NewExecutor(nil)
+	s := NewScheduler(executor, nil)
+	s.Start()
+	defer s.Stop()
+
+	p := &Pipeline{
+		ID:   "wf-1",
+		Name: "test-workflow",
+		Nodes: []Node{
+			{Name: "trigger", Type: "n8n-nodes-base.manualTrigger"},
+		},
+	}
+
+	s.Register(p)
+
+	// Verify entry exists.
+	s.mu.Lock()
+	_, exists := s.entries[p.ID]
+	s.mu.Unlock()
+	if !exists {
+		t.Fatal("expected workflow to be registered")
+	}
+
+	s.Unregister(p.ID)
+
+	s.mu.Lock()
+	_, exists = s.entries[p.ID]
+	s.mu.Unlock()
+	if exists {
+		t.Fatal("expected workflow to be unregistered")
+	}
+}
+
+func TestScheduler_TriggerManual(t *testing.T) {
+	executor := NewExecutor(nil)
+	done := make(chan struct{})
+	action := &mockAction{output: "manual-ok"}
+	executor.RegisterAction("act", action)
+
+	s := NewScheduler(executor, nil)
+	s.Start()
+	defer s.Stop()
+
+	p := &Pipeline{
+		ID:   "wf-manual",
+		Name: "manual-test",
+		Nodes: []Node{
+			{Name: "a", Type: "act"},
+		},
+	}
+
+	go func() {
+		// Poll until the action has been called.
+		for i := 0; i < 100; i++ {
+			if action.called.Load() > 0 {
+				close(done)
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+
+	s.TriggerManual(p)
+
+	select {
+	case <-done:
+		// success
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for manual trigger execution")
+	}
+}
+
+func TestParseCronInterval_ScheduleTrigger(t *testing.T) {
+	params := map[string]any{
+		"rule": map[string]any{
+			"interval": []any{
+				map[string]any{"field": "minutes", "minutesInterval": float64(5)},
+			},
+		},
+	}
+	got := parseCronInterval(params)
+	want := 5 * time.Minute
+	if got != want {
+		t.Errorf("parseCronInterval() = %v, want %v", got, want)
+	}
+}
+
+func TestParseCronInterval_EveryMinute(t *testing.T) {
+	params := map[string]any{
+		"triggerTimes": map[string]any{
+			"item": []any{
+				map[string]any{"mode": "everyMinute"},
+			},
+		},
+	}
+	got := parseCronInterval(params)
+	want := time.Minute
+	if got != want {
+		t.Errorf("parseCronInterval() = %v, want %v", got, want)
+	}
+}
+
+func TestParseCronInterval_Default(t *testing.T) {
+	params := map[string]any{}
+	got := parseCronInterval(params)
+	want := 60 * time.Second
+	if got != want {
+		t.Errorf("parseCronInterval() = %v, want %v", got, want)
+	}
+}

@@ -546,3 +546,44 @@ func TestNoPersistenceWithoutDataDir(t *testing.T) {
 	}
 	// No crash, no file writes — just works in memory.
 }
+
+func TestSetProviderSwitchesUnderlyingProvider(t *testing.T) {
+	// 1. Create service with the original mock provider.
+	svc, origProv, _ := setupTestService("response from provider A")
+
+	ctx := context.Background()
+
+	// 2. Send a message and verify it works with the original provider.
+	resp1, err := svc.SendMessage(ctx, "user1", "", "First question")
+	if err != nil {
+		t.Fatalf("SendMessage with original provider: %v", err)
+	}
+	if resp1.Message.Content != "response from provider A" {
+		t.Errorf("first response = %q, want %q", resp1.Message.Content, "response from provider A")
+	}
+	if origProv.callCount != 1 {
+		t.Errorf("original provider callCount = %d, want 1", origProv.callCount)
+	}
+
+	// 3. Create a new mock provider with a different response.
+	newProv := &mockProvider{response: "response from provider B"}
+
+	// 4. Switch to the new provider.
+	svc.SetProvider(newProv, "mock-v2")
+
+	// 5. Send another message and verify the new provider was used.
+	resp2, err := svc.SendMessage(ctx, "user1", "", "Second question")
+	if err != nil {
+		t.Fatalf("SendMessage with new provider: %v", err)
+	}
+	if resp2.Message.Content != "response from provider B" {
+		t.Errorf("second response = %q, want %q", resp2.Message.Content, "response from provider B")
+	}
+	if newProv.callCount != 1 {
+		t.Errorf("new provider callCount = %d, want 1", newProv.callCount)
+	}
+	// Original provider should not have received any additional calls.
+	if origProv.callCount != 1 {
+		t.Errorf("original provider callCount after switch = %d, want 1 (unchanged)", origProv.callCount)
+	}
+}

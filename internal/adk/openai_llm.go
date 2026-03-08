@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"google.golang.org/adk/model"
+	"google.golang.org/adk/tool/toolconfirmation"
 	"google.golang.org/genai"
 )
 
@@ -203,6 +204,10 @@ func contentToMessages(c *genai.Content) []oaiMessage {
 		switch {
 		case p.FunctionCall != nil:
 			fc := p.FunctionCall
+			// Skip ADK-internal confirmation requests — not a real LLM tool call
+			if fc.Name == toolconfirmation.FunctionCallName {
+				continue
+			}
 			argsJSON, _ := json.Marshal(fc.Args)
 			toolCalls = append(toolCalls, oaiToolCall{
 				ID:   fc.ID,
@@ -214,6 +219,10 @@ func contentToMessages(c *genai.Content) []oaiMessage {
 			})
 		case p.FunctionResponse != nil:
 			fr := p.FunctionResponse
+			// Skip ADK-internal confirmation responses
+			if fr.Name == toolconfirmation.FunctionCallName {
+				continue
+			}
 			respJSON, _ := json.Marshal(fr.Response)
 			toolResponses = append(toolResponses, oaiMessage{
 				Role:       "tool",

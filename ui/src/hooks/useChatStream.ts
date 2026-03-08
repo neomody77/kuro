@@ -84,22 +84,38 @@ function processSSEStream(
               }]
               break
             case 'tool_result': {
-              msg.toolCalls = msg.toolCalls.map(tc =>
-                tc.callId === event.call_id || tc.name === event.tool_name
-                  ? { ...tc, output: event.tool_output, status: 'done' as const }
-                  : tc
-              )
+              const isAwaitingConfirmation = event.tool_output && (event.tool_output as Record<string, unknown>).status === 'awaiting_confirmation'
+              msg.toolCalls = msg.toolCalls.map(tc => {
+                if (tc.callId !== event.call_id) return tc
+                if (isAwaitingConfirmation) {
+                  // Don't mark as done — confirmation flow will handle it
+                  return { ...tc, output: event.tool_output }
+                }
+                return { ...tc, output: event.tool_output, status: 'done' as const }
+              })
               break
             }
-            case 'confirm_request':
-              msg.toolCalls = [...msg.toolCalls, {
-                callId: event.call_id,
-                name: event.tool_name,
-                input: event.tool_input,
-                status: 'confirm',
-                hint: event.hint,
-              }]
+            case 'confirm_request': {
+              // Update the existing tool call entry to confirmation state
+              // (the confirm_request has a different call_id — the adk confirmation id)
+              const existingIdx = msg.toolCalls.findIndex(tc => tc.name === event.tool_name && tc.status === 'calling')
+              if (existingIdx >= 0) {
+                msg.toolCalls = msg.toolCalls.map((tc, idx) =>
+                  idx === existingIdx
+                    ? { ...tc, callId: event.call_id, status: 'confirm' as ToolCallEntry['status'], hint: event.hint }
+                    : tc
+                )
+              } else {
+                msg.toolCalls = [...msg.toolCalls, {
+                  callId: event.call_id,
+                  name: event.tool_name,
+                  input: event.tool_input,
+                  status: 'confirm',
+                  hint: event.hint,
+                }]
+              }
               break
+            }
             case 'error':
               msg.content += `\n\n**Error:** ${event.error}`
               break
