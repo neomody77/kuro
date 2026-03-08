@@ -13,11 +13,14 @@ import (
 	kuroadk "github.com/neomody77/kuro/internal/adk"
 
 	"github.com/neomody77/kuro/internal/api"
+	"github.com/neomody77/kuro/internal/audit"
 	"github.com/neomody77/kuro/internal/auth"
 	"github.com/neomody77/kuro/internal/chat"
 	"github.com/neomody77/kuro/internal/config"
 	"github.com/neomody77/kuro/internal/credential"
+	"github.com/neomody77/kuro/internal/db"
 	"github.com/neomody77/kuro/internal/document"
+	"github.com/neomody77/kuro/internal/events"
 	"github.com/neomody77/kuro/internal/gitstore"
 	"github.com/neomody77/kuro/internal/pipeline"
 	"github.com/neomody77/kuro/internal/provider"
@@ -101,11 +104,53 @@ func main() {
 		DocumentStore:   docStore,
 	})
 
+	// Initialize global event hub for SSE
+	eventHub := events.NewHub()
+
+	// Initialize per-user SQLite database cache
+	dbCache := db.NewUserDBCache(filepath.Join(cfg.DataDir, "users"))
+	defer dbCache.Close()
+
+	// Create audit logger for the default user
+	var auditLogger *audit.Logger
+	if defaultDB, err := dbCache.Get("default"); err == nil {
+		auditLogger = audit.NewLogger(db.NewAuditStore(defaultDB))
+		auditLogger.LogSystem("startup", "server starting")
+	} else {
+		log.Printf("Warning: could not open default user DB: %v", err)
+	}
+
 	// Set up pipeline executor with n8n node handlers
 	executionsDir := filepath.Join(defaultRepoDir, "executions")
 	os.MkdirAll(executionsDir, 0o755)
 	execStore := pipeline.NewJSONExecutionStore(executionsDir)
 	executor := pipeline.NewExecutor(execStore)
+
+	// Publish pipeline completion events to SSE hub
+	executor.SetOnComplete(func(exec *pipeline.Execution, wf *pipeline.Workflow) {
+		sev := "success"
+		title := "Pipeline completed"
+		msg := wf.Name + " ran successfully"
+		if exec.Status == pipeline.ExecError {
+			sev = "error"
+			title = "Pipeline failed"
+			msg = wf.Name + " finished with errors"
+		} else if exec.Status == pipeline.ExecCanceled {
+			sev = "warning"
+			title = "Pipeline canceled"
+			msg = wf.Name + " was canceled"
+		}
+		eventHub.Publish(events.Event{
+			Type:     "pipeline." + string(exec.Status),
+			Title:    title,
+			Message:  msg,
+			Severity: sev,
+			Meta: map[string]any{
+				"workflow_id":  wf.ID,
+				"execution_id": exec.ID,
+			},
+		})
+	})
 
 	// Register n8n-compatible node handlers
 	executor.RegisterNodeHandler("n8n-nodes-base.emailReadImap", &pipeline.ImapTriggerHandler{})
@@ -165,6 +210,9 @@ func main() {
 		Executor:      executor,
 		ExecStore:     execStore,
 		ADKSessionSvc: adkSessionSvcIface,
+		DBCache:       dbCache,
+		AuditLogger:   auditLogger,
+		EventHub:      eventHub,
 	}
 	if aiProvider != nil {
 		apiDeps.ADKRunner = initADKRunner(settingsStore, registry, adkSessionSvcIface)

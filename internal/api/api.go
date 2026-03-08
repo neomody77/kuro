@@ -16,10 +16,13 @@ import (
 	"google.golang.org/adk/tool/toolconfirmation"
 	"google.golang.org/genai"
 
+	"github.com/neomody77/kuro/internal/audit"
 	"github.com/neomody77/kuro/internal/auth"
 	"github.com/neomody77/kuro/internal/chat"
 	"github.com/neomody77/kuro/internal/credential"
+	"github.com/neomody77/kuro/internal/db"
 	"github.com/neomody77/kuro/internal/document"
+	"github.com/neomody77/kuro/internal/events"
 	"github.com/neomody77/kuro/internal/gitstore"
 	"github.com/neomody77/kuro/internal/pipeline"
 	"github.com/neomody77/kuro/internal/server"
@@ -40,6 +43,13 @@ type Deps struct {
 	// ADK agent loop
 	ADKRunner     *runner.Runner
 	ADKSessionSvc session.Service
+
+	// SQLite stores (optional — if nil, falls back to JSON file stores)
+	DBCache     *db.UserDBCache
+	AuditLogger *audit.Logger
+
+	// Real-time event hub for SSE
+	EventHub *events.Hub
 }
 
 // Register registers all API routes on the server.
@@ -139,6 +149,12 @@ func Register(srv *server.Server, deps *Deps) {
 	// Skills
 	srv.HandleAPI("GET /api/skills", withDeps(deps, handleListSkills))
 	srv.HandleAPI("GET /api/skills/{id}", withDeps(deps, handleGetSkill))
+
+	// Audit Logs
+	srv.HandleAPI("GET /api/v1/audit-logs", withDeps(deps, handleListAuditLogs))
+
+	// SSE event stream
+	srv.HandleAPI("GET /api/events", withDeps(deps, handleEventStream))
 }
 
 type depsHandler func(deps *Deps, w http.ResponseWriter, r *http.Request)
@@ -146,6 +162,18 @@ type depsHandler func(deps *Deps, w http.ResponseWriter, r *http.Request)
 func withDeps(deps *Deps, fn depsHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		fn(deps, w, r)
+	}
+}
+
+func publishEvent(deps *Deps, typ, title, message, severity string, meta map[string]any) {
+	if deps.EventHub != nil {
+		deps.EventHub.Publish(events.Event{
+			Type:     typ,
+			Title:    title,
+			Message:  message,
+			Severity: severity,
+			Meta:     meta,
+		})
 	}
 }
 
@@ -165,23 +193,47 @@ func workflowStore(dataDir string, r *http.Request) *pipeline.WorkflowStore {
 	return pipeline.NewWorkflowStore(filepath.Join(userRepoDir(dataDir, r), "pipelines"))
 }
 
-func getExecStore(deps *Deps, r *http.Request) *pipeline.JSONExecutionStore {
+func getExecStore(deps *Deps, r *http.Request) pipeline.ExecutionStore {
+	if deps.DBCache != nil {
+		username := auth.GetUser(r.Context())
+		if userDB, err := deps.DBCache.Get(username); err == nil {
+			return db.NewExecutionStore(userDB)
+		}
+	}
 	if deps.ExecStore != nil {
 		return deps.ExecStore
 	}
 	return pipeline.NewJSONExecutionStore(filepath.Join(userRepoDir(deps.DataDir, r), "executions"))
 }
 
-func variableStore(dataDir string, r *http.Request) *pipeline.VariableStore {
-	return pipeline.NewVariableStore(filepath.Join(userDataDir(dataDir, r)))
+func variableStore(deps *Deps, r *http.Request) pipeline.VariableRepository {
+	if deps.DBCache != nil {
+		username := auth.GetUser(r.Context())
+		if userDB, err := deps.DBCache.Get(username); err == nil {
+			return db.NewVariableStore(userDB)
+		}
+	}
+	return pipeline.NewVariableStore(filepath.Join(userDataDir(deps.DataDir, r)))
 }
 
-func tagStore(dataDir string, r *http.Request) *pipeline.TagStore {
-	return pipeline.NewTagStore(filepath.Join(userDataDir(dataDir, r)))
+func tagStore(deps *Deps, r *http.Request) pipeline.TagRepository {
+	if deps.DBCache != nil {
+		username := auth.GetUser(r.Context())
+		if userDB, err := deps.DBCache.Get(username); err == nil {
+			return db.NewTagStore(userDB)
+		}
+	}
+	return pipeline.NewTagStore(filepath.Join(userDataDir(deps.DataDir, r)))
 }
 
-func dataTableStore(dataDir string, r *http.Request) *pipeline.DataTableStore {
-	return pipeline.NewDataTableStore(filepath.Join(userDataDir(dataDir, r), "tables"))
+func dataTableStore(deps *Deps, r *http.Request) pipeline.DataTableRepository {
+	if deps.DBCache != nil {
+		username := auth.GetUser(r.Context())
+		if userDB, err := deps.DBCache.Get(username); err == nil {
+			return db.NewDataTableStore(userDB)
+		}
+	}
+	return pipeline.NewDataTableStore(filepath.Join(userDataDir(deps.DataDir, r), "tables"))
 }
 
 func credentialStore(dataDir string, r *http.Request) (*credential.Store, error) {
@@ -471,6 +523,7 @@ func handleCreateCredential(deps *Deps, w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	server.WriteJSON(w, http.StatusCreated, map[string]string{"id": id, "name": cred.Name})
+	publishEvent(deps, "credential.created", "Credential created", cred.Name+" was added", "info", nil)
 }
 
 func handleGetCredential(deps *Deps, w http.ResponseWriter, r *http.Request) {
@@ -522,6 +575,7 @@ func handleUpdateCredential(deps *Deps, w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]string{"id": id, "name": existing.Name})
+	publishEvent(deps, "credential.updated", "Credential updated", existing.Name+" was modified", "info", nil)
 }
 
 func handleDeleteCredential(deps *Deps, w http.ResponseWriter, r *http.Request) {
@@ -536,12 +590,13 @@ func handleDeleteCredential(deps *Deps, w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]string{"deleted": id})
+	publishEvent(deps, "credential.deleted", "Credential deleted", id+" was removed", "warning", nil)
 }
 
 // --- Variables ---
 
 func handleListVariables(deps *Deps, w http.ResponseWriter, r *http.Request) {
-	store := variableStore(deps.DataDir, r)
+	store := variableStore(deps, r)
 	vars := store.List()
 	if vars == nil {
 		vars = []pipeline.Variable{}
@@ -550,7 +605,7 @@ func handleListVariables(deps *Deps, w http.ResponseWriter, r *http.Request) {
 }
 
 func handleCreateVariable(deps *Deps, w http.ResponseWriter, r *http.Request) {
-	store := variableStore(deps.DataDir, r)
+	store := variableStore(deps, r)
 	var v pipeline.Variable
 	if err := json.NewDecoder(r.Body).Decode(&v); err != nil {
 		server.WriteError(w, http.StatusBadRequest, "invalid JSON")
@@ -566,7 +621,7 @@ func handleCreateVariable(deps *Deps, w http.ResponseWriter, r *http.Request) {
 
 func handleUpdateVariable(deps *Deps, w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	store := variableStore(deps.DataDir, r)
+	store := variableStore(deps, r)
 	var v pipeline.Variable
 	if err := json.NewDecoder(r.Body).Decode(&v); err != nil {
 		server.WriteError(w, http.StatusBadRequest, "invalid JSON")
@@ -582,7 +637,7 @@ func handleUpdateVariable(deps *Deps, w http.ResponseWriter, r *http.Request) {
 
 func handleDeleteVariable(deps *Deps, w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	store := variableStore(deps.DataDir, r)
+	store := variableStore(deps, r)
 	if err := store.Delete(id); err != nil {
 		server.WriteError(w, http.StatusNotFound, err.Error())
 		return
@@ -593,7 +648,7 @@ func handleDeleteVariable(deps *Deps, w http.ResponseWriter, r *http.Request) {
 // --- Tags ---
 
 func handleListTags(deps *Deps, w http.ResponseWriter, r *http.Request) {
-	store := tagStore(deps.DataDir, r)
+	store := tagStore(deps, r)
 	tags := store.List()
 	if tags == nil {
 		tags = []pipeline.Tag{}
@@ -602,7 +657,7 @@ func handleListTags(deps *Deps, w http.ResponseWriter, r *http.Request) {
 }
 
 func handleCreateTag(deps *Deps, w http.ResponseWriter, r *http.Request) {
-	store := tagStore(deps.DataDir, r)
+	store := tagStore(deps, r)
 	var t pipeline.Tag
 	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
 		server.WriteError(w, http.StatusBadRequest, "invalid JSON")
@@ -618,7 +673,7 @@ func handleCreateTag(deps *Deps, w http.ResponseWriter, r *http.Request) {
 
 func handleGetTag(deps *Deps, w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	store := tagStore(deps.DataDir, r)
+	store := tagStore(deps, r)
 	t, err := store.Get(id)
 	if err != nil {
 		server.WriteError(w, http.StatusNotFound, err.Error())
@@ -629,7 +684,7 @@ func handleGetTag(deps *Deps, w http.ResponseWriter, r *http.Request) {
 
 func handleUpdateTag(deps *Deps, w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	store := tagStore(deps.DataDir, r)
+	store := tagStore(deps, r)
 	var t pipeline.Tag
 	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
 		server.WriteError(w, http.StatusBadRequest, "invalid JSON")
@@ -645,7 +700,7 @@ func handleUpdateTag(deps *Deps, w http.ResponseWriter, r *http.Request) {
 
 func handleDeleteTag(deps *Deps, w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	store := tagStore(deps.DataDir, r)
+	store := tagStore(deps, r)
 	if err := store.Delete(id); err != nil {
 		server.WriteError(w, http.StatusNotFound, err.Error())
 		return
@@ -656,7 +711,7 @@ func handleDeleteTag(deps *Deps, w http.ResponseWriter, r *http.Request) {
 // --- Data Tables ---
 
 func handleListDataTables(deps *Deps, w http.ResponseWriter, r *http.Request) {
-	store := dataTableStore(deps.DataDir, r)
+	store := dataTableStore(deps, r)
 	tables := store.ListTables()
 	if tables == nil {
 		tables = []pipeline.DataTable{}
@@ -665,7 +720,7 @@ func handleListDataTables(deps *Deps, w http.ResponseWriter, r *http.Request) {
 }
 
 func handleCreateDataTable(deps *Deps, w http.ResponseWriter, r *http.Request) {
-	store := dataTableStore(deps.DataDir, r)
+	store := dataTableStore(deps, r)
 	var t pipeline.DataTable
 	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
 		server.WriteError(w, http.StatusBadRequest, "invalid JSON")
@@ -681,7 +736,7 @@ func handleCreateDataTable(deps *Deps, w http.ResponseWriter, r *http.Request) {
 
 func handleGetDataTable(deps *Deps, w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	store := dataTableStore(deps.DataDir, r)
+	store := dataTableStore(deps, r)
 	t, err := store.GetTable(id)
 	if err != nil {
 		server.WriteError(w, http.StatusNotFound, err.Error())
@@ -692,7 +747,7 @@ func handleGetDataTable(deps *Deps, w http.ResponseWriter, r *http.Request) {
 
 func handleUpdateDataTable(deps *Deps, w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	store := dataTableStore(deps.DataDir, r)
+	store := dataTableStore(deps, r)
 	var t pipeline.DataTable
 	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
 		server.WriteError(w, http.StatusBadRequest, "invalid JSON")
@@ -708,7 +763,7 @@ func handleUpdateDataTable(deps *Deps, w http.ResponseWriter, r *http.Request) {
 
 func handleDeleteDataTable(deps *Deps, w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	store := dataTableStore(deps.DataDir, r)
+	store := dataTableStore(deps, r)
 	if err := store.DeleteTable(id); err != nil {
 		server.WriteError(w, http.StatusNotFound, err.Error())
 		return
@@ -718,7 +773,7 @@ func handleDeleteDataTable(deps *Deps, w http.ResponseWriter, r *http.Request) {
 
 func handleListRows(deps *Deps, w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	store := dataTableStore(deps.DataDir, r)
+	store := dataTableStore(deps, r)
 	rows := store.ListRows(id)
 	if rows == nil {
 		rows = []pipeline.DataTableRow{}
@@ -728,7 +783,7 @@ func handleListRows(deps *Deps, w http.ResponseWriter, r *http.Request) {
 
 func handleInsertRows(deps *Deps, w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	store := dataTableStore(deps.DataDir, r)
+	store := dataTableStore(deps, r)
 	var rows []pipeline.DataTableRow
 	if err := json.NewDecoder(r.Body).Decode(&rows); err != nil {
 		server.WriteError(w, http.StatusBadRequest, "invalid JSON")
@@ -750,7 +805,7 @@ func handleUpdateRow(deps *Deps, w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "invalid row ID")
 		return
 	}
-	store := dataTableStore(deps.DataDir, r)
+	store := dataTableStore(deps, r)
 	var data map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
 		server.WriteError(w, http.StatusBadRequest, "invalid JSON")
@@ -772,7 +827,7 @@ func handleDeleteRow(deps *Deps, w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "invalid row ID")
 		return
 	}
-	store := dataTableStore(deps.DataDir, r)
+	store := dataTableStore(deps, r)
 	if err := store.DeleteRow(tableID, rowID); err != nil {
 		server.WriteError(w, http.StatusNotFound, err.Error())
 		return
@@ -1272,4 +1327,92 @@ func handleGetSkill(deps *Deps, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, s)
+}
+
+// --- Audit Logs ---
+
+func handleListAuditLogs(deps *Deps, w http.ResponseWriter, r *http.Request) {
+	if deps.DBCache == nil {
+		server.WriteJSON(w, http.StatusOK, []any{})
+		return
+	}
+	username := auth.GetUser(r.Context())
+	userDB, err := deps.DBCache.Get(username)
+	if err != nil {
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	q := r.URL.Query()
+	filter := audit.QueryFilter{
+		Type:      audit.EventType(q.Get("type")),
+		TraceID:   q.Get("trace_id"),
+		SessionID: q.Get("session_id"),
+		UserID:    q.Get("user_id"),
+		Limit:     100,
+	}
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			filter.Limit = n
+		}
+	}
+	if v := q.Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			filter.Offset = n
+		}
+	}
+
+	store := db.NewAuditStore(userDB)
+	entries, total, err := store.Query(filter)
+	if err != nil {
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if entries == nil {
+		entries = []audit.Entry{}
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]any{
+		"entries": entries,
+		"total":   total,
+	})
+}
+
+// --- SSE Event Stream ---
+
+func handleEventStream(deps *Deps, w http.ResponseWriter, r *http.Request) {
+	if deps.EventHub == nil {
+		http.Error(w, "event stream not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	ch, cancel := deps.EventHub.Subscribe()
+	defer cancel()
+
+	// Send initial heartbeat
+	fmt.Fprintf(w, ": connected\n\n")
+	flusher.Flush()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case ev, ok := <-ch:
+			if !ok {
+				return
+			}
+			data, _ := json.Marshal(ev)
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+		}
+	}
 }

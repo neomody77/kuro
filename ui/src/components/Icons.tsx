@@ -184,3 +184,38 @@ export const PanelLeftOpen = multiPathIcon(
   'M9 4v16',
   'M14 10l2 2-2 2'
 )
+
+export const Minus = icon('M5 12h14')
+
+export const Maximize2 = multiPathIcon(
+  'M8 3H5a2 2 0 0 0-2 2v3',
+  'M21 8V5a2 2 0 0 0-2-2h-3',
+  'M3 16v3a2 2 0 0 0 2 2h3',
+  'M16 21h3a2 2 0 0 0 2-2v-3'
+)
+
+export const X = multiPathIcon('M18 6L6 18', 'M6 6l12 12')
+
+export const Monitor = multiPathIcon(
+  'M20 3H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z',
+  'M8 21h8',
+  'M12 17v4'
+)
+
+export const Bell = multiPathIcon(
+  'M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9',
+  'M13.73 21a2 2 0 0 1-3.46 0'
+)
+
+export const Grid = multiPathIcon(
+  'M3 3h7v7H3z',
+  'M14 3h7v7h-7z',
+  'M14 14h7v7h-7z',
+  'M3 14h7v7H3z'
+)
+
+export const Layout = multiPathIcon(
+  'M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z',
+  'M3 9h18',
+  'M9 21V9'
+)

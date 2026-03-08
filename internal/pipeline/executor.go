@@ -16,6 +16,7 @@ type Executor struct {
 	nodeHandlers map[string]NodeHandler
 	execStore    ExecutionStore
 	credResolver CredentialResolver
+	onComplete   func(exec *Execution, wf *Workflow) // optional callback after execution finishes
 }
 
 // NewExecutor creates a new workflow executor.
@@ -30,6 +31,11 @@ func NewExecutor(store ExecutionStore) *Executor {
 // SetCredentialResolver sets the credential resolver for node credential lookups.
 func (e *Executor) SetCredentialResolver(cr CredentialResolver) {
 	e.credResolver = cr
+}
+
+// SetOnComplete sets a callback invoked after each execution finishes.
+func (e *Executor) SetOnComplete(fn func(exec *Execution, wf *Workflow)) {
+	e.onComplete = fn
 }
 
 // RegisterAction registers a legacy action handler by name.
@@ -195,10 +201,13 @@ func (e *Executor) Execute(ctx context.Context, w *Workflow) (*Execution, error)
 	exec.Finished = true
 
 	// Skip persisting empty trigger executions (no data flowed)
-	if e.execStore != nil {
-		if !isEmptyTriggerExecution(exec, nodeOutputs) {
-			_ = e.execStore.SaveExecution(exec)
-		}
+	empty := isEmptyTriggerExecution(exec, nodeOutputs)
+	if e.execStore != nil && !empty {
+		_ = e.execStore.SaveExecution(exec)
+	}
+
+	if e.onComplete != nil && !empty {
+		e.onComplete(exec, w)
 	}
 
 	return exec, nil

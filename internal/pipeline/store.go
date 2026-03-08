@@ -107,6 +107,7 @@ type ExecutionStore interface {
 	GetExecution(id string) (*Execution, error)
 	ListExecutions(workflowID string, limit int) ([]*Execution, error)
 	DeleteExecution(id string) error
+	ClearExecutions(workflowID string) (int, error)
 }
 
 // JSONExecutionStore implements ExecutionStore using JSON files on disk.
@@ -259,6 +260,15 @@ func NewJSONRunStore(dir string) *JSONRunStore {
 
 // --- Variable Store ---
 
+// VariableRepository defines the interface for variable storage.
+type VariableRepository interface {
+	List() []Variable
+	Get(id string) (*Variable, error)
+	Create(v Variable) (*Variable, error)
+	Update(id string, v Variable) (*Variable, error)
+	Delete(id string) error
+}
+
 // VariableStore manages key-value variables.
 type VariableStore struct {
 	mu   sync.Mutex
@@ -353,6 +363,15 @@ func (s *VariableStore) Delete(id string) error {
 }
 
 // --- Tag Store ---
+
+// TagRepository defines the interface for tag storage.
+type TagRepository interface {
+	List() []Tag
+	Get(id string) (*Tag, error)
+	Create(t Tag) (*Tag, error)
+	Update(id string, t Tag) (*Tag, error)
+	Delete(id string) error
+}
 
 // TagStore manages workflow tags.
 type TagStore struct {
@@ -453,6 +472,19 @@ func (s *TagStore) Delete(id string) error {
 }
 
 // --- DataTable Store ---
+
+// DataTableRepository defines the interface for data table storage.
+type DataTableRepository interface {
+	ListTables() []DataTable
+	GetTable(id string) (*DataTable, error)
+	CreateTable(t DataTable) (*DataTable, error)
+	UpdateTable(id string, t DataTable) (*DataTable, error)
+	DeleteTable(id string) error
+	ListRows(tableID string) []DataTableRow
+	InsertRows(tableID string, rows []DataTableRow) ([]DataTableRow, error)
+	UpdateRow(tableID string, rowID int, data map[string]any) (*DataTableRow, error)
+	DeleteRow(tableID string, rowID int) error
+}
 
 // DataTableStore manages data tables and their rows.
 type DataTableStore struct {

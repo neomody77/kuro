@@ -17,23 +17,24 @@ import {
 } from './Icons'
 import { useTheme } from '../hooks/useTheme'
 import { chatStore } from '../lib/chatStore'
+import { setViewPref } from '../lib/navConfig'
 
 const navItems = [
-  { to: '/pipelines', label: 'Pipelines', icon: GitBranch },
-  { to: '/skills', label: 'Skills', icon: Zap },
-  { to: '/documents', label: 'Documents', icon: FileText },
-  { to: '/vault', label: 'Vault', icon: KeyRound },
-  { to: '/logs', label: 'Logs', icon: ScrollText },
-  { to: '/settings', label: 'Settings', icon: Settings },
+  { to: '/app/pipelines', label: 'Pipelines', icon: GitBranch },
+  { to: '/app/skills', label: 'Skills', icon: Zap },
+  { to: '/app/documents', label: 'Documents', icon: FileText },
+  { to: '/app/vault', label: 'Vault', icon: KeyRound },
+  { to: '/app/logs', label: 'Logs', icon: ScrollText },
+  { to: '/app/settings', label: 'Settings', icon: Settings },
 ]
 
 const mobileItems = [
-  { to: '/chat', label: 'Chat', icon: MessageSquare },
-  { to: '/pipelines', label: 'Pipelines', icon: GitBranch },
-  { to: '/vault', label: 'Vault', icon: KeyRound },
+  { to: '/app/chat', label: 'Chat', icon: MessageSquare },
+  { to: '/app/pipelines', label: 'Pipelines', icon: GitBranch },
+  { to: '/app/vault', label: 'Vault', icon: KeyRound },
 ]
 
-const morePages = ['/skills', '/documents', '/logs', '/settings']
+const morePages = ['/app/skills', '/app/documents', '/app/logs', '/app/settings']
 
 function useChatSessions() {
   return useSyncExternalStore(
@@ -49,7 +50,7 @@ function useChatActive() {
   )
 }
 
-function Layout() {
+function AppLayout() {
   const location = useLocation()
   const navigate = useNavigate()
   const isMoreActive = morePages.includes(location.pathname)
@@ -61,7 +62,7 @@ function Layout() {
     try { return localStorage.getItem('kuro:sidebar') === 'collapsed' } catch { return false }
   })
 
-  const isChat = location.pathname === '/chat'
+  const isChat = location.pathname === '/app/chat'
 
   useEffect(() => {
     chatStore.load()
@@ -75,20 +76,24 @@ function Layout() {
 
   async function handleNewSession() {
     try {
-      // Reuse an existing empty "New Chat" session instead of creating duplicates
       const empty = sessions.find(s => s.title === 'New Chat')
       if (empty) {
         chatStore.setActive(empty.id)
       } else {
         await chatStore.createSession()
       }
-      if (!isChat) navigate('/chat')
+      if (!isChat) navigate('/app/chat')
     } catch { /* ignore */ }
   }
 
   function selectSession(id: string) {
     chatStore.setActive(id)
-    if (!isChat) navigate('/chat')
+    if (!isChat) navigate('/app/chat')
+  }
+
+  function switchToDesktop() {
+    setViewPref('desktop')
+    navigate('/desktop')
   }
 
   return (
@@ -150,7 +155,7 @@ function Layout() {
             /* Collapsed: icon-only nav */
             <div className="flex flex-col items-center gap-1">
               <NavLink
-                to="/chat"
+                to="/app/chat"
                 className="p-2 rounded-lg transition-colors"
                 style={({ isActive }) => ({
                   backgroundColor: isActive ? 'var(--color-surface-active)' : 'transparent',
@@ -182,7 +187,7 @@ function Layout() {
               <div>
                 <div className="flex items-center">
                   <NavLink
-                    to="/chat"
+                    to="/app/chat"
                     className="flex-1 flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors"
                     style={({ isActive }) => ({
                       backgroundColor: isActive ? 'var(--color-surface-active)' : 'transparent',
@@ -298,7 +303,19 @@ function Layout() {
           }}
         >
           {!collapsed && (
-            <div className="text-xs px-2" style={{ color: 'var(--color-text-tertiary)' }}>Kuro v0.1.0</div>
+            <div className="flex items-center gap-2">
+              <div className="text-xs px-2" style={{ color: 'var(--color-text-tertiary)' }}>Kuro v0.1.0</div>
+              <button
+                onClick={switchToDesktop}
+                className="text-xs px-1.5 py-0.5 rounded transition-colors"
+                style={{ color: 'var(--color-text-tertiary)', border: '1px solid var(--color-border-primary)' }}
+                onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--color-surface-hover)'; e.currentTarget.style.color = 'var(--color-text-primary)' }}
+                onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--color-text-tertiary)' }}
+                title="Switch to Desktop view"
+              >
+                Desktop
+              </button>
+            </div>
           )}
           <button
             onClick={toggle}
@@ -343,7 +360,7 @@ function Layout() {
           </NavLink>
         ))}
         <NavLink
-          to="/skills"
+          to="/app/skills"
           className="flex-1 flex flex-col items-center gap-1 py-2 text-xs transition-colors"
           style={{ color: isMoreActive ? 'var(--color-accent)' : 'var(--color-text-tertiary)' }}
         >
@@ -355,4 +372,4 @@ function Layout() {
   )
 }
 
-export default Layout
+export default AppLayout
