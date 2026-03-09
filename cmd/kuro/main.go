@@ -92,6 +92,9 @@ func main() {
 	}
 	docStore := document.NewStore(filepath.Join(defaultRepoDir, "documents"), git)
 
+	// Load settings store (needed by skills and provider setup)
+	settingsStore := settings.NewStore(filepath.Join(cfg.DataDir, "settings.yaml"))
+
 	// Set up skill registry with core skills
 	registry := skill.NewRegistry(nil)
 	pipelinesDir := filepath.Join(defaultRepoDir, "pipelines")
@@ -102,6 +105,7 @@ func main() {
 		PipelinesDir:    pipelinesDir,
 		CredentialStore: credStore,
 		DocumentStore:   docStore,
+		SettingsStore:   settingsStore,
 	})
 
 	// Initialize global event hub for SSE
@@ -169,9 +173,6 @@ func main() {
 	scheduler := pipeline.NewScheduler(executor, workflowStore)
 	scheduler.Start()
 	scheduler.RegisterActiveWorkflows()
-
-	// Load settings store
-	settingsStore := settings.NewStore(filepath.Join(cfg.DataDir, "settings.yaml"))
 
 	// Load provider from settings — no env var fallback
 	var aiProvider provider.Provider

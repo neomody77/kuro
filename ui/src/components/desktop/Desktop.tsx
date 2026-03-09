@@ -5,7 +5,7 @@ import AppLauncher from './AppLauncher'
 import NotificationCenter from './NotificationCenter'
 import { useEventStream } from '../../hooks/useEventStream'
 import { allPages } from '../../lib/navConfig'
-import { loadWindowLayout, saveWindowLayout, getNextZIndex, createWindowId } from '../../lib/windowStore'
+import { loadWindowLayout, loadWindowLayoutFromServer, saveWindowLayout, getNextZIndex, createWindowId } from '../../lib/windowStore'
 import type { WindowState } from './Window'
 
 // Lazy-load page components
@@ -14,6 +14,7 @@ const Pipelines = lazy(() => import('../../pages/Pipelines'))
 const Skills = lazy(() => import('../../pages/Skills'))
 const Documents = lazy(() => import('../../pages/Documents'))
 const Vault = lazy(() => import('../../pages/Vault'))
+const DataTables = lazy(() => import('../../pages/DataTables'))
 const Logs = lazy(() => import('../../pages/Logs'))
 const Settings = lazy(() => import('../../pages/Settings'))
 
@@ -23,6 +24,7 @@ const pageComponents: Record<string, React.LazyExoticComponent<any>> = {
   skills: Skills,
   documents: Documents,
   vault: Vault,
+  datatables: DataTables,
   logs: Logs,
   settings: Settings,
 }
@@ -45,6 +47,17 @@ export default function Desktop() {
   const [launcherOpen, setLauncherOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const { notifications, unreadCount, markAllRead, dismiss } = useEventStream()
+
+  // Hydrate layout from server on mount (async, overwrites localStorage-only state)
+  useEffect(() => {
+    let cancelled = false
+    loadWindowLayoutFromServer().then(serverLayout => {
+      if (!cancelled && serverLayout.length > 0) {
+        setWindows(prev => prev.length === 0 ? serverLayout : prev)
+      }
+    })
+    return () => { cancelled = true }
+  }, [])
 
   // Persist window layout
   useEffect(() => {

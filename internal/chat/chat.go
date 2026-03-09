@@ -407,6 +407,12 @@ func (s *Service) SendMessage(ctx context.Context, userID, sessionID, content st
 		if err != nil {
 			assistantContent += fmt.Sprintf("\n\n[Skill error: %v]", err)
 		} else {
+			// Redact credential secrets — chat context must not expose real values
+			if skillCall.Skill == "credential" {
+				if action, _ := skillCall.Inputs["action"].(string); action == "get" {
+					result = redactCredentialResult(result)
+				}
+			}
 			resultJSON, _ := json.Marshal(result)
 			assistantContent += fmt.Sprintf("\n\n[Skill result: %s]", string(resultJSON))
 		}
@@ -524,6 +530,42 @@ func isDestructive(sc *SkillCall) bool {
 		return DestructiveSkills[sc.Skill+":"+action]
 	}
 	return false
+}
+
+// redactCredentialResult masks secret values in a credential "get" result
+// so they are never exposed in chat responses.
+func redactCredentialResult(result any) any {
+	m, ok := result.(map[string]any)
+	if !ok {
+		return result
+	}
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	if data, ok := out["data"].(map[string]string); ok {
+		redacted := make(map[string]string, len(data))
+		for k, v := range data {
+			if len(v) <= 4 {
+				redacted[k] = "****"
+			} else {
+				redacted[k] = v[:2] + "****" + v[len(v)-2:]
+			}
+		}
+		out["data"] = redacted
+	} else if data, ok := out["data"].(map[string]any); ok {
+		redacted := make(map[string]any, len(data))
+		for k, v := range data {
+			s := fmt.Sprintf("%v", v)
+			if len(s) <= 4 {
+				redacted[k] = "****"
+			} else {
+				redacted[k] = s[:2] + "****" + s[len(s)-2:]
+			}
+		}
+		out["data"] = redacted
+	}
+	return out
 }
 
 // parseAIResponse extracts the text content and any embedded skill call from the AI response.

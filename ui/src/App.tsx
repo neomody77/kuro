@@ -5,6 +5,7 @@ import Chat from './pages/Chat'
 import Pipelines from './pages/Pipelines'
 import Skills from './pages/Skills'
 import Vault from './pages/Vault'
+import DataTables from './pages/DataTables'
 import Logs from './pages/Logs'
 import Settings from './pages/Settings'
 import { getViewPref } from './lib/navConfig'
@@ -39,6 +40,7 @@ function App() {
         <Route path="skills" element={<Skills />} />
         <Route path="documents" element={<Suspense fallback={<LoadingFallback />}><Documents /></Suspense>} />
         <Route path="vault" element={<Vault />} />
+        <Route path="datatables" element={<DataTables />} />
         <Route path="logs" element={<Logs />} />
         <Route path="settings" element={<Settings />} />
       </Route>

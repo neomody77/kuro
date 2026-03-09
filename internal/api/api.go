@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -145,6 +146,13 @@ func Register(srv *server.Server, deps *Deps) {
 	srv.HandleAPI("POST /api/settings/providers", withDeps(deps, handleAddProvider))
 	srv.HandleAPI("DELETE /api/settings/providers/{id}", withDeps(deps, handleDeleteProvider))
 	srv.HandleAPI("POST /api/settings/providers/test", withDeps(deps, handleTestProvider))
+
+	// Settings - Integrations
+	srv.HandleAPI("PUT /api/settings/tavily-key", withDeps(deps, handleSetTavilyKey))
+
+	// Layout persistence (per-user window layout)
+	srv.HandleAPI("GET /api/settings/layout", withDeps(deps, handleGetLayout))
+	srv.HandleAPI("PUT /api/settings/layout", withDeps(deps, handlePutLayout))
 
 	// Skills
 	srv.HandleAPI("GET /api/skills", withDeps(deps, handleListSkills))
@@ -1251,6 +1259,21 @@ func handleListProviders(deps *Deps, w http.ResponseWriter, r *http.Request) {
 	server.WriteJSON(w, http.StatusOK, s.Providers)
 }
 
+func handleSetTavilyKey(deps *Deps, w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		APIKey string `json:"api_key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		server.WriteError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if err := deps.SettingsStore.SetTavilyAPIKey(payload.APIKey); err != nil {
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 func handleAddProvider(deps *Deps, w http.ResponseWriter, r *http.Request) {
 	var p settings.ProviderConfig
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
@@ -1291,6 +1314,53 @@ func handleTestProvider(deps *Deps, w http.ResponseWriter, r *http.Request) {
 	}
 	if err := deps.SettingsStore.TestProvider(r.Context(), p); err != nil {
 		server.WriteError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// --- Layout Persistence ---
+
+func layoutPath(dataDir string, r *http.Request) string {
+	username := auth.GetUser(r.Context())
+	return filepath.Join(dataDir, "users", username, "layout.json")
+}
+
+func handleGetLayout(deps *Deps, w http.ResponseWriter, r *http.Request) {
+	path := layoutPath(deps.DataDir, r)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No saved layout — return empty array
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte("[]"))
+			return
+		}
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(data)
+}
+
+func handlePutLayout(deps *Deps, w http.ResponseWriter, r *http.Request) {
+	data, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1 MB max
+	if err != nil {
+		server.WriteError(w, http.StatusBadRequest, "failed to read body")
+		return
+	}
+	// Validate that the body is valid JSON
+	if !json.Valid(data) {
+		server.WriteError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	path := layoutPath(deps.DataDir, r)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})

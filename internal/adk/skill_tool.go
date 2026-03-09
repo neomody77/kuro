@@ -134,13 +134,24 @@ func (t *skillToolWrapper) Run(ctx tool.Context, args any) (map[string]any, erro
 	}
 
 	// Ensure result is a map
+	var out map[string]any
 	switch v := result.(type) {
 	case map[string]any:
-		return v, nil
+		out = v
 	default:
 		resultJSON, _ := json.Marshal(v)
-		return map[string]any{"result": json.RawMessage(resultJSON)}, nil
+		out = map[string]any{"result": json.RawMessage(resultJSON)}
 	}
+
+	// Credential isolation: redact secret values in chat context.
+	// Pipelines use CredentialResolver directly and are unaffected.
+	if t.skill.Name == "credential" {
+		if action, _ := params["action"].(string); action == "get" {
+			out = redactCredentialData(out)
+		}
+	}
+
+	return out, nil
 }
 
 // --- RequestProcessor interface (matched by ADK via type assertion) ---
@@ -179,6 +190,38 @@ func (t *skillToolWrapper) ProcessRequest(ctx tool.Context, req *model.LLMReques
 		funcTool.FunctionDeclarations = append(funcTool.FunctionDeclarations, decl)
 	}
 	return nil
+}
+
+// redactCredentialData replaces secret values in a credential "get" response
+// with placeholders, so the LLM never sees actual secrets.
+func redactCredentialData(m map[string]any) map[string]any {
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	if data, ok := out["data"].(map[string]any); ok {
+		redacted := make(map[string]any, len(data))
+		for k, v := range data {
+			s := fmt.Sprintf("%v", v)
+			if len(s) <= 4 {
+				redacted[k] = "****"
+			} else {
+				redacted[k] = s[:2] + "****" + s[len(s)-2:]
+			}
+		}
+		out["data"] = redacted
+	} else if data, ok := out["data"].(map[string]string); ok {
+		redacted := make(map[string]any, len(data))
+		for k, v := range data {
+			if len(v) <= 4 {
+				redacted[k] = "****"
+			} else {
+				redacted[k] = v[:2] + "****" + v[len(v)-2:]
+			}
+		}
+		out["data"] = redacted
+	}
+	return out
 }
 
 func mapParamType(t string) genai.Type {

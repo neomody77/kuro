@@ -1,0 +1,10 @@
+.git
+node_modules
+ui/node_modules
+ui/dist
+*.md
+docs/
+kuro
+kuro-cli
+bin/
+cmd/kuro/ui

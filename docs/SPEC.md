@@ -401,36 +401,59 @@ Pipeline: daily-team-summary          [Edit YAML] [Run Now] [Pause]
 ## API
 
 ```
-GET    /api/pipelines              # List pipelines
-POST   /api/pipelines              # Create pipeline
-GET    /api/pipelines/:id          # Get pipeline detail
-PUT    /api/pipelines/:id          # Update pipeline
-DELETE /api/pipelines/:id          # Delete pipeline
-POST   /api/pipelines/:id/run      # Manual trigger
-GET    /api/pipelines/:id/runs     # Run history
+# Health
+GET    /api/health
 
-GET    /api/skills                 # List skills
-POST   /api/skills                 # Create/install skill
-GET    /api/skills/:id             # Skill detail
+# Workflows (n8n-compatible CRUD)
+GET/POST           /api/v1/workflows
+GET/PUT/DELETE     /api/v1/workflows/{id}
+POST               /api/v1/workflows/{id}/activate
+POST               /api/v1/workflows/{id}/deactivate
 
-GET    /api/credentials            # List credentials (no secrets)
-POST   /api/credentials            # Create credential
-PUT    /api/credentials/:id        # Update credential
-DELETE /api/credentials/:id        # Delete credential
+# Executions
+GET                /api/v1/executions
+GET/DELETE         /api/v1/executions/{id}
+POST               /api/v1/executions/clear
 
-GET    /api/documents              # List documents
-GET    /api/documents/*path        # Get document content
-PUT    /api/documents/*path        # Create/update document
-DELETE /api/documents/*path        # Delete document
+# Credentials
+GET/POST           /api/v1/credentials
+GET/PATCH/DELETE   /api/v1/credentials/{id}
 
-POST   /api/chat                   # Send chat message
-GET    /api/chat/history           # Chat history
+# Variables / Tags / Data Tables
+GET/POST           /api/v1/variables
+PUT/DELETE         /api/v1/variables/{id}
+GET/POST           /api/v1/tags
+GET/PUT/DELETE     /api/v1/tags/{id}
+GET/POST           /api/v1/data-tables
+GET/PATCH/DELETE   /api/v1/data-tables/{id}
+GET/POST           /api/v1/data-tables/{id}/rows
+PATCH/DELETE       /api/v1/data-tables/{id}/rows/{rowId}
 
-GET    /api/logs                   # Execution logs
-GET    /api/logs/:run_id           # Specific run log
+# Documents
+GET                /api/documents
+GET/PUT/DELETE     /api/documents/{path...}
 
-GET    /api/settings               # Get settings
-PUT    /api/settings               # Update settings
+# Chat
+GET/POST/DELETE    /api/chat/sessions[/{id}]
+POST               /api/chat                    # Legacy (markdown parsing)
+POST               /api/chat/stream             # ADK SSE streaming
+POST               /api/chat/stream/confirm     # HITL confirmation
+GET                /api/chat/history
+
+# Settings / Providers
+GET                /api/settings
+PUT                /api/settings/active-model
+GET/POST           /api/settings/providers
+DELETE             /api/settings/providers/{id}
+POST               /api/settings/providers/test
+
+# Skills
+GET                /api/skills
+GET                /api/skills/{id}
+
+# Audit & Events
+GET                /api/v1/audit-logs           # Structured audit log query
+GET                /api/events                  # SSE real-time event stream
 ```
 
 ## Go Project Structure
@@ -445,14 +468,19 @@ kuro/
 ├── internal/
 │   ├── server/               # HTTP server, router, middleware
 │   ├── auth/                 # Token auth, user isolation
-│   ├── chat/                 # Chat handler, AI intent parsing
-│   ├── pipeline/             # DAG engine, node executor, scheduler
+│   ├── adk/                  # Google ADK integration (LLM adapter, skill→tool, runner)
+│   ├── api/                  # REST API handlers + SSE streaming
+│   ├── audit/                # Structured audit logging, trace ID propagation
+│   ├── chat/                 # Chat handler, AI intent parsing, credential redaction
+│   ├── pipeline/             # DAG engine, node executor, scheduler, store interfaces
 │   ├── skill/                # Skill registry, built-in skills
 │   ├── credential/           # Encryption, credential CRUD
 │   ├── document/             # Document store
 │   ├── gitstore/             # Git operations
-│   ├── db/                   # SQLite, migrations
-│   ├── provider/             # AI provider adapters (OpenAI, Anthropic, etc)
+│   ├── db/                   # Per-user SQLite (stores, migrations, UserDBCache)
+│   ├── events/               # Pub/sub event hub for SSE
+│   ├── provider/             # AI provider adapters (OpenAI-compatible)
+│   ├── settings/             # YAML settings persistence
 │   ├── bridge/               # On-demand Node.js bridge manager
 │   ├── action/               # Built-in action implementations
 │   │   ├── email/

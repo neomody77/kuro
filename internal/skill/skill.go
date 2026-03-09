@@ -18,12 +18,14 @@ import (
 	"github.com/neomody77/kuro/internal/document"
 	"github.com/neomody77/kuro/internal/pipeline"
 	"github.com/neomody77/kuro/internal/provider"
+	"github.com/neomody77/kuro/internal/settings"
 )
 
 // CoreConfig holds the dependencies needed to create core skills.
 type CoreConfig struct {
 	CredentialStore *credential.Store
 	DocumentStore   *document.Store
+	SettingsStore   *settings.Store
 	WorkspaceDir    string
 	DocumentsDir    string
 	PipelinesDir    string
@@ -140,6 +142,20 @@ func RegisterDefaults(r *Registry, cfg CoreConfig) {
 		Description: "Call an LLM for text completion",
 		Handler:     &ai.CompleteAction{Providers: cfg.Providers},
 	})
+
+	// Web Search skill (Tavily)
+	if cfg.SettingsStore != nil {
+		r.Register(&Skill{
+			Name:        "web_search",
+			Description: "Search the web for real-time information using Tavily. Actions: search",
+			Inputs: []SkillParam{
+				{Name: "action", Required: true},
+				{Name: "query", Required: true},
+				{Name: "max_results", Type: "integer"},
+			},
+			Handler: &webSearchSkill{settings: cfg.SettingsStore},
+		})
+	}
 }
 
 // --- Credential skill (unified) ---
@@ -710,4 +726,5 @@ var (
 	_ pipeline.ActionHandler = (*emailSkill)(nil)
 	_ pipeline.ActionHandler = (*fileSkill)(nil)
 	_ pipeline.ActionHandler = (*pipelineSkill)(nil)
+	_ pipeline.ActionHandler = (*webSearchSkill)(nil)
 )

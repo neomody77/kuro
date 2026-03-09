@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/neomody77/kuro/internal/credential"
@@ -12,6 +13,7 @@ import (
 	"github.com/neomody77/kuro/internal/gitstore"
 	"github.com/neomody77/kuro/internal/pipeline"
 	"github.com/neomody77/kuro/internal/provider"
+	"github.com/neomody77/kuro/internal/settings"
 )
 
 // setupTestEnv creates a temp dir with git repo, credential store, and document store.
@@ -80,6 +82,8 @@ func TestRegistryBasics(t *testing.T) {
 // TestRegisterDefaults checks all core skills are registered.
 func TestRegisterDefaults(t *testing.T) {
 	credStore, docStore, workDir := setupTestEnv(t)
+	settingsPath := filepath.Join(workDir, "settings.yaml")
+	settingsStore := settings.NewStore(settingsPath)
 
 	r := NewRegistry(nil)
 	RegisterDefaults(r, CoreConfig{
@@ -87,12 +91,14 @@ func TestRegisterDefaults(t *testing.T) {
 		DocumentStore:   docStore,
 		WorkspaceDir:    workDir,
 		DocumentsDir:    filepath.Dir(workDir),
+		SettingsStore:   settingsStore,
 	})
 
 	expected := []string{
 		"credential", "document",
 		"shell", "email", "http", "file",
 		"transform", "template", "ai",
+		"web_search",
 	}
 
 	for _, name := range expected {
@@ -654,12 +660,15 @@ func TestAICompleteSkill(t *testing.T) {
 
 func TestRegistryListsAllSkills(t *testing.T) {
 	credStore, docStore, workDir := setupTestEnv(t)
+	settingsPath := filepath.Join(workDir, "settings.yaml")
+	settingsStore := settings.NewStore(settingsPath)
 
 	r := NewRegistry(nil)
 	RegisterDefaults(r, CoreConfig{
 		CredentialStore: credStore,
 		DocumentStore:   docStore,
 		WorkspaceDir:    workDir,
+		SettingsStore:   settingsStore,
 	})
 
 	list := r.List()
@@ -672,6 +681,7 @@ func TestRegistryListsAllSkills(t *testing.T) {
 		"credential", "document",
 		"shell", "email", "http", "file",
 		"transform", "template", "ai",
+		"web_search",
 	}
 
 	for _, name := range required {
@@ -746,4 +756,123 @@ func TestSkillJSON(t *testing.T) {
 	if len(s2.Inputs) != 1 || s2.Inputs[0].Name != "x" {
 		t.Errorf("inputs = %v", s2.Inputs)
 	}
+}
+
+// --- Web Search skill tests ---
+
+func TestWebSearchNoAPIKey(t *testing.T) {
+	tmpDir := t.TempDir()
+	settingsPath := filepath.Join(tmpDir, "settings.yaml")
+	store := settings.NewStore(settingsPath)
+
+	handler := &webSearchSkill{settings: store}
+	ctx := context.Background()
+	_, err := handler.Execute(ctx, map[string]any{
+		"action": "search",
+		"query":  "test query",
+	}, nil)
+	if err == nil {
+		t.Fatal("expected error when no API key is configured")
+	}
+	if !containsStr(err.Error(), "not configured") {
+		t.Errorf("error = %q, want message about API key not configured", err.Error())
+	}
+}
+
+func TestWebSearchMissingQuery(t *testing.T) {
+	tmpDir := t.TempDir()
+	settingsPath := filepath.Join(tmpDir, "settings.yaml")
+	store := settings.NewStore(settingsPath)
+	store.SetTavilyAPIKey("tvly-test-key-12345")
+
+	handler := &webSearchSkill{settings: store}
+	ctx := context.Background()
+	_, err := handler.Execute(ctx, map[string]any{
+		"action": "search",
+	}, nil)
+	if err == nil {
+		t.Fatal("expected error when query is missing")
+	}
+	if !containsStr(err.Error(), "'query' is required") {
+		t.Errorf("error = %q, want query required message", err.Error())
+	}
+}
+
+func TestWebSearchUnknownAction(t *testing.T) {
+	tmpDir := t.TempDir()
+	settingsPath := filepath.Join(tmpDir, "settings.yaml")
+	store := settings.NewStore(settingsPath)
+
+	handler := &webSearchSkill{settings: store}
+	ctx := context.Background()
+	_, err := handler.Execute(ctx, map[string]any{
+		"action": "unknown",
+	}, nil)
+	if err == nil {
+		t.Fatal("expected error for unknown action")
+	}
+	if !containsStr(err.Error(), "unknown action") {
+		t.Errorf("error = %q, want unknown action message", err.Error())
+	}
+}
+
+func TestWebSearchDefaultAction(t *testing.T) {
+	tmpDir := t.TempDir()
+	settingsPath := filepath.Join(tmpDir, "settings.yaml")
+	store := settings.NewStore(settingsPath)
+
+	handler := &webSearchSkill{settings: store}
+	ctx := context.Background()
+	// If no action provided, it defaults to "search" — should fail on missing API key, not unknown action
+	_, err := handler.Execute(ctx, map[string]any{
+		"query": "test query",
+	}, nil)
+	if err == nil {
+		t.Fatal("expected error (no API key)")
+	}
+	if containsStr(err.Error(), "unknown action") {
+		t.Errorf("empty action should default to search, not fail as unknown action")
+	}
+}
+
+func TestWebSearchRegistered(t *testing.T) {
+	tmpDir := t.TempDir()
+	settingsPath := filepath.Join(tmpDir, "settings.yaml")
+	store := settings.NewStore(settingsPath)
+
+	r := NewRegistry(nil)
+	RegisterDefaults(r, CoreConfig{SettingsStore: store})
+
+	s, ok := r.Get("web_search")
+	if !ok {
+		t.Fatal("web_search not registered")
+	}
+	if s.Handler == nil {
+		t.Fatal("web_search has no handler")
+	}
+	if s.Description == "" {
+		t.Error("web_search has empty description")
+	}
+
+	// Verify required inputs
+	hasAction := false
+	hasQuery := false
+	for _, p := range s.Inputs {
+		if p.Name == "action" && p.Required {
+			hasAction = true
+		}
+		if p.Name == "query" && p.Required {
+			hasQuery = true
+		}
+	}
+	if !hasAction {
+		t.Error("web_search missing required 'action' input")
+	}
+	if !hasQuery {
+		t.Error("web_search missing required 'query' input")
+	}
+}
+
+func containsStr(s, sub string) bool {
+	return len(s) >= len(sub) && strings.Contains(s, sub)
 }

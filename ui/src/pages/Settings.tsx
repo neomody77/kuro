@@ -22,6 +22,7 @@ type ActiveModel = {
 type SettingsData = {
   providers: Provider[]
   active_model: ActiveModel
+  tavily_api_key?: string
 }
 
 type TestResult = {
@@ -104,6 +105,12 @@ function Settings() {
   const addBtnRef = useRef<HTMLButtonElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
 
+  // Tavily integration
+  const [tavilyKey, setTavilyKey] = useState('')
+  const [showTavilyKey, setShowTavilyKey] = useState(false)
+  const [savingTavily, setSavingTavily] = useState(false)
+  const [tavilySaved, setTavilySaved] = useState(false)
+
   // Global error
   const [error, setError] = useState('')
 
@@ -116,6 +123,7 @@ function Settings() {
       setActiveModel(data.active_model || { provider_id: '', model: '' })
       setActiveProviderInput(data.active_model?.provider_id || '')
       setActiveModelInput(data.active_model?.model || '')
+      setTavilyKey(data.tavily_api_key || '')
     } catch {
       // Silently handle — page will show empty state
     }
@@ -286,6 +294,23 @@ function Settings() {
       setTestResult({ ok: false, message: e instanceof Error ? e.message : 'Connection failed' })
     } finally {
       setTestingConnection(false)
+    }
+  }
+
+  async function saveTavilyKey() {
+    setSavingTavily(true)
+    setError('')
+    try {
+      // Don't send if it's masked (unchanged)
+      if (!tavilyKey.startsWith('***')) {
+        await api.put('/api/settings/tavily-key', { api_key: tavilyKey })
+      }
+      setTavilySaved(true)
+      setTimeout(() => setTavilySaved(false), 2000)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save Tavily API key')
+    } finally {
+      setSavingTavily(false)
     }
   }
 
@@ -759,6 +784,74 @@ function Settings() {
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+          </section>
+
+          {/* ── Integrations ── */}
+          <section className="rounded-xl p-5" style={sectionStyle}>
+            <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--color-text-primary)' }}>
+              Integrations
+            </h2>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs mb-1.5" style={{ color: 'var(--color-text-tertiary)' }}>
+                  Tavily API Key
+                </label>
+                <div className="text-xs mb-2" style={{ color: 'var(--color-text-quaternary)' }}>
+                  Required for the web_search skill. Get a free key at{' '}
+                  <a
+                    href="https://tavily.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: 'var(--color-accent)' }}
+                  >
+                    tavily.com
+                  </a>
+                </div>
+                <div className="flex gap-3">
+                  <div className="relative flex-1">
+                    <input
+                      type={showTavilyKey ? 'text' : 'password'}
+                      value={tavilyKey}
+                      onChange={e => setTavilyKey(e.target.value)}
+                      placeholder="tvly-..."
+                      className="w-full rounded-lg px-3 py-2 pr-16 text-sm outline-none"
+                      style={inputStyle}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowTavilyKey(!showTavilyKey)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-xs px-2 py-1 rounded transition-colors"
+                      style={{ color: 'var(--color-text-tertiary)' }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.color = 'var(--color-text-primary)'
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.color = 'var(--color-text-tertiary)'
+                      }}
+                    >
+                      {showTavilyKey ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {tavilySaved && (
+                      <span className="text-xs" style={{ color: 'var(--color-success)' }}>Saved</span>
+                    )}
+                    <button
+                      onClick={saveTavilyKey}
+                      disabled={savingTavily || !tavilyKey}
+                      className="rounded-lg px-5 py-2 text-sm font-medium transition-colors"
+                      style={{
+                        backgroundColor: 'var(--color-accent)',
+                        color: 'var(--color-accent-text)',
+                        opacity: savingTavily || !tavilyKey ? 0.4 : 1,
+                      }}
+                    >
+                      {savingTavily ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </section>

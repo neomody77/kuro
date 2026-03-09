@@ -31,8 +31,9 @@ type ActiveModel struct {
 
 // Settings holds all persistent application settings.
 type Settings struct {
-	Providers   []ProviderConfig `json:"providers" yaml:"providers"`
-	ActiveModel ActiveModel      `json:"active_model" yaml:"active_model"`
+	Providers    []ProviderConfig `json:"providers" yaml:"providers"`
+	ActiveModel  ActiveModel      `json:"active_model" yaml:"active_model"`
+	TavilyAPIKey string           `json:"tavily_api_key,omitempty" yaml:"tavily_api_key,omitempty"`
 }
 
 // Store manages loading and saving settings from disk.
@@ -108,8 +109,12 @@ func (s *Store) Get() Settings {
 	defer s.mu.RUnlock()
 
 	result := Settings{
-		ActiveModel: s.data.ActiveModel,
-		Providers:   make([]ProviderConfig, len(s.data.Providers)),
+		ActiveModel:  s.data.ActiveModel,
+		TavilyAPIKey: s.data.TavilyAPIKey,
+		Providers:    make([]ProviderConfig, len(s.data.Providers)),
+	}
+	if result.TavilyAPIKey != "" {
+		result.TavilyAPIKey = maskKey(result.TavilyAPIKey)
 	}
 	for i, p := range s.data.Providers {
 		result.Providers[i] = p
@@ -126,11 +131,31 @@ func (s *Store) GetFull() Settings {
 	defer s.mu.RUnlock()
 
 	result := Settings{
-		ActiveModel: s.data.ActiveModel,
-		Providers:   make([]ProviderConfig, len(s.data.Providers)),
+		ActiveModel:  s.data.ActiveModel,
+		TavilyAPIKey: s.data.TavilyAPIKey,
+		Providers:    make([]ProviderConfig, len(s.data.Providers)),
 	}
 	copy(result.Providers, s.data.Providers)
 	return result
+}
+
+// GetTavilyAPIKey returns the full (unmasked) Tavily API key.
+func (s *Store) GetTavilyAPIKey() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.data.TavilyAPIKey
+}
+
+// SetTavilyAPIKey stores a new Tavily API key.
+// If the key looks masked, it is ignored to avoid overwriting the real key.
+func (s *Store) SetTavilyAPIKey(key string) error {
+	if isMaskedKey(key) {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data.TavilyAPIKey = key
+	return s.Save()
 }
 
 // SetActiveModel validates and sets the active provider and model.

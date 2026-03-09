@@ -6,6 +6,7 @@ import {
   Zap,
   FileText,
   KeyRound,
+  Grid,
   ScrollText,
   Settings,
   MoreHorizontal,
@@ -24,6 +25,7 @@ const navItems = [
   { to: '/app/skills', label: 'Skills', icon: Zap },
   { to: '/app/documents', label: 'Documents', icon: FileText },
   { to: '/app/vault', label: 'Vault', icon: KeyRound },
+  { to: '/app/datatables', label: 'Data Tables', icon: Grid },
   { to: '/app/logs', label: 'Logs', icon: ScrollText },
   { to: '/app/settings', label: 'Settings', icon: Settings },
 ]

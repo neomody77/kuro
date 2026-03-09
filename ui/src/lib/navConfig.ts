@@ -6,6 +6,7 @@ import {
   KeyRound,
   ScrollText,
   Settings,
+  Grid,
 } from '../components/Icons'
 
 export type NavItem = {
@@ -21,6 +22,7 @@ export const allPages: NavItem[] = [
   { id: 'skills', to: '/app/skills', label: 'Skills', icon: Zap },
   { id: 'documents', to: '/app/documents', label: 'Documents', icon: FileText },
   { id: 'vault', to: '/app/vault', label: 'Vault', icon: KeyRound },
+  { id: 'datatables', to: '/app/datatables', label: 'Data Tables', icon: Grid },
   { id: 'logs', to: '/app/logs', label: 'Logs', icon: ScrollText },
   { id: 'settings', to: '/app/settings', label: 'Settings', icon: Settings },
 ]
