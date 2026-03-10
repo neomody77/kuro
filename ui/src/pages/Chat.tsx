@@ -258,7 +258,7 @@ function ToolCallCard({ toolCall, onConfirm }: { toolCall: ToolCallEntry; onConf
   const statusColor =
     toolCall.status === 'calling' ? 'var(--color-warning, #eab308)' :
     toolCall.status === 'done' || toolCall.status === 'confirmed' ? 'var(--color-success, #22c55e)' :
-    toolCall.status === 'confirm' ? 'var(--color-accent, #6366f1)' :
+    toolCall.status === 'confirm' ? 'var(--color-accent, #0ea5e9)' :
     toolCall.status === 'rejected' ? 'var(--color-text-tertiary)' :
     'var(--color-error, #ef4444)'
 

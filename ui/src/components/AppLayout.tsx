@@ -132,7 +132,7 @@ function AppLayout() {
           ) : (
             <>
               <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-indigo-600 dark:bg-indigo-500 flex items-center justify-center text-white text-sm font-bold">
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold" style={{ backgroundColor: 'var(--color-accent)', color: 'var(--color-accent-text)' }}>
                   K
                 </div>
                 <span className="text-lg font-semibold" style={{ color: 'var(--color-text-primary)' }}>Kuro</span>

@@ -4,11 +4,11 @@
   "description": "Personal AI Assistant",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#09090b",
-  "theme_color": "#18181b",
+  "background_color": "#0d1117",
+  "theme_color": "#131920",
   "icons": [
     {
-      "src": "/vite.svg",
+      "src": "/kuro.svg",
       "sizes": "any",
       "type": "image/svg+xml"
     }

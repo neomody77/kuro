@@ -81,7 +81,7 @@ function FileIconJson({ size = 14, style }: IconProps) {
 }
 
 const iconColors: Record<string, string> = {
-  md: '#6366f1',
+  md: '#0ea5e9',
   yaml: '#f59e0b',
   yml: '#f59e0b',
   json: '#10b981',

@@ -12,29 +12,29 @@
  */
 
 @theme {
-  /* Light theme surfaces */
-  --color-surface-primary: #ffffff;
-  --color-surface-secondary: #f8f8fa;
-  --color-surface-tertiary: #f0f0f3;
+  /* Light theme surfaces — brushed aluminum */
+  --color-surface-primary: #f8f9fb;
+  --color-surface-secondary: #f0f2f5;
+  --color-surface-tertiary: #e6e9ee;
   --color-surface-elevated: #ffffff;
-  --color-surface-hover: #f0f0f3;
-  --color-surface-active: #e8e8ec;
+  --color-surface-hover: #e8ebf0;
+  --color-surface-active: #dde1e8;
 
   /* Light theme borders */
-  --color-border-primary: #e2e2e7;
-  --color-border-secondary: #ebebf0;
-  --color-border-focus: #6366f1;
+  --color-border-primary: #d0d5dd;
+  --color-border-secondary: #dfe3ea;
+  --color-border-focus: #0ea5e9;
 
-  /* Light theme text - all meet WCAG AA on white */
-  --color-text-primary: #1a1a22;       /* ~16:1 on white */
-  --color-text-secondary: #4b4b5a;     /* ~7.5:1 on white */
-  --color-text-tertiary: #8b8b9a;      /* ~3.5:1 on white */
-  --color-text-quaternary: #b0b0bc;    /* placeholder text */
+  /* Light theme text - all meet WCAG AA on #f8f9fb */
+  --color-text-primary: #151921;       /* near-black blue steel */
+  --color-text-secondary: #475569;     /* slate-600 */
+  --color-text-tertiary: #7c8694;      /* steel gray */
+  --color-text-quaternary: #a3adb8;    /* placeholder text */
   --color-text-inverse: #ffffff;
 
-  /* Light theme accent */
-  --color-accent: #6366f1;
-  --color-accent-hover: #5558e6;
+  /* Light theme accent — electric blue */
+  --color-accent: #0ea5e9;
+  --color-accent-hover: #0284c7;
   --color-accent-text: #ffffff;
 
   /* Status */
@@ -43,31 +43,29 @@
   --color-warning: #f59e0b;
 }
 
-/* Dark theme - Linear.app inspired
- * Very dark blue-tinted backgrounds, crisp white text
- */
+/* Dark theme — gunmetal / carbon fiber */
 .dark {
-  --color-surface-primary: #0c0c14;
-  --color-surface-secondary: #12121c;
-  --color-surface-tertiary: #1a1a28;
-  --color-surface-elevated: #161622;
-  --color-surface-hover: #1e1e2e;
-  --color-surface-active: #26263a;
+  --color-surface-primary: #0d1117;
+  --color-surface-secondary: #131920;
+  --color-surface-tertiary: #1b2129;
+  --color-surface-elevated: #161d26;
+  --color-surface-hover: #1f2937;
+  --color-surface-active: #263040;
 
-  --color-border-primary: #2a2a3e;
-  --color-border-secondary: #1f1f30;
-  --color-border-focus: #818cf8;
+  --color-border-primary: #2a3342;
+  --color-border-secondary: #1e2630;
+  --color-border-focus: #38bdf8;
 
-  /* Dark theme text - all meet WCAG AA on #0c0c14 */
-  --color-text-primary: #ededf0;       /* ~15:1 on dark bg */
-  --color-text-secondary: #a0a0b4;     /* ~6.5:1 on dark bg */
-  --color-text-tertiary: #6b6b82;      /* ~3.5:1 on dark bg */
-  --color-text-quaternary: #4a4a60;    /* placeholder text */
-  --color-text-inverse: #0c0c14;
+  /* Dark theme text - all meet WCAG AA on #0d1117 */
+  --color-text-primary: #e6edf3;       /* cool white */
+  --color-text-secondary: #8b949e;     /* steel mid-gray */
+  --color-text-tertiary: #6e7681;      /* dark steel gray */
+  --color-text-quaternary: #484f58;    /* placeholder text */
+  --color-text-inverse: #0d1117;
 
-  --color-accent: #818cf8;
-  --color-accent-hover: #6d78f4;
-  --color-accent-text: #0c0c14;
+  --color-accent: #38bdf8;
+  --color-accent-hover: #0ea5e9;
+  --color-accent-text: #0d1117;
 
   --color-success: #34d399;
   --color-error: #f87171;
