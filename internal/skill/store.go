@@ -3,6 +3,7 @@ package skill
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -88,11 +89,26 @@ func (s *Store) Delete(name string) error {
 
 // LoadAll loads all skills from the store into the given registry.
 func (s *Store) LoadAll(reg *Registry) error {
+	return s.LoadAllWithSource(reg, "")
+}
+
+// LoadAllWithSource loads all skills from the store into the given registry,
+// setting the Source field on each. Skills with unmet requirements are skipped.
+// Later skills with the same name override earlier ones (workspace > global > builtin).
+func (s *Store) LoadAllWithSource(reg *Registry, source string) error {
 	skills, err := s.List()
 	if err != nil {
 		return err
 	}
 	for _, sk := range skills {
+		if source != "" {
+			sk.Source = source
+		}
+		// Check runtime requirements; skip if not met.
+		if err := CheckRequirements(sk.Require); err != nil {
+			log.Printf("skill: skipping %q (%s): %v", sk.Name, source, err)
+			continue
+		}
 		reg.Register(sk)
 	}
 	return nil
@@ -123,6 +139,17 @@ func (s *Store) load(path string) (*Skill, error) {
 	if sk.Name == "" {
 		base := filepath.Base(path)
 		sk.Name = strings.TrimSuffix(base, filepath.Ext(base))
+	}
+
+	// Assign execution handler based on Command/Endpoint fields.
+	if sk.Command != "" && sk.Endpoint != "" {
+		return nil, fmt.Errorf("skill %q: cannot set both command and endpoint", sk.Name)
+	}
+	if sk.Command != "" && sk.Handler == nil {
+		sk.Handler = &ShellHandler{Command: sk.Command}
+	}
+	if sk.Endpoint != "" && sk.Handler == nil {
+		sk.Handler = &HTTPHandler{Endpoint: sk.Endpoint}
 	}
 
 	return &sk, nil

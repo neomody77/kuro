@@ -8,14 +8,11 @@ import (
 	"io"
 	"net/http"
 	"time"
-
-	"github.com/neomody77/kuro/internal/settings"
 )
 
 // webSearchSkill implements the web_search skill using the Tavily Search API.
-type webSearchSkill struct {
-	settings *settings.Store
-}
+// The API key is read from skill config (creds["api_key"]), not from settings.
+type webSearchSkill struct{}
 
 // tavilyRequest is the JSON body sent to the Tavily Search API.
 type tavilyRequest struct {
@@ -46,13 +43,13 @@ func (s *webSearchSkill) Execute(ctx context.Context, params map[string]any, cre
 
 	switch action {
 	case "search":
-		return s.search(ctx, params)
+		return s.search(ctx, params, creds)
 	default:
 		return nil, fmt.Errorf("web_search: unknown action %q (use: search)", action)
 	}
 }
 
-func (s *webSearchSkill) search(ctx context.Context, params map[string]any) (any, error) {
+func (s *webSearchSkill) search(ctx context.Context, params map[string]any, creds map[string]string) (any, error) {
 	query, _ := params["query"].(string)
 	if query == "" {
 		return nil, fmt.Errorf("web_search: 'query' is required")
@@ -64,25 +61,22 @@ func (s *webSearchSkill) search(ctx context.Context, params map[string]any) (any
 	} else if mr, ok := params["max_results"].(int); ok && mr > 0 {
 		maxResults = mr
 	} else if mr, ok := params["max_results"].(string); ok && mr != "" {
-		// Try to parse as integer
 		var n int
 		if _, err := fmt.Sscanf(mr, "%d", &n); err == nil && n > 0 {
 			maxResults = n
 		}
 	}
 
-	// Clamp max_results to a reasonable range
 	if maxResults > 20 {
 		maxResults = 20
 	}
 
-	// Read API key from settings at execution time
-	apiKey := s.settings.GetTavilyAPIKey()
+	// Read API key from skill config (credential store)
+	apiKey := creds["api_key"]
 	if apiKey == "" {
-		return nil, fmt.Errorf("web_search: Tavily API key not configured. Please add it in Settings > Integrations")
+		return nil, fmt.Errorf("web_search: API key not configured. Go to Skills > web_search to add your Tavily API key")
 	}
 
-	// Build request
 	reqBody := tavilyRequest{
 		APIKey:     apiKey,
 		Query:      query,
@@ -106,7 +100,7 @@ func (s *webSearchSkill) search(ctx context.Context, params map[string]any) (any
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MB limit
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, fmt.Errorf("web_search: read response: %w", err)
 	}
@@ -120,7 +114,6 @@ func (s *webSearchSkill) search(ctx context.Context, params map[string]any) (any
 		return nil, fmt.Errorf("web_search: parse response: %w", err)
 	}
 
-	// Build result
 	results := make([]map[string]any, 0, len(tavilyResp.Results))
 	for _, r := range tavilyResp.Results {
 		results = append(results, map[string]any{

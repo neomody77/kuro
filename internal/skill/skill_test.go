@@ -13,7 +13,6 @@ import (
 	"github.com/neomody77/kuro/internal/gitstore"
 	"github.com/neomody77/kuro/internal/pipeline"
 	"github.com/neomody77/kuro/internal/provider"
-	"github.com/neomody77/kuro/internal/settings"
 )
 
 // setupTestEnv creates a temp dir with git repo, credential store, and document store.
@@ -82,16 +81,12 @@ func TestRegistryBasics(t *testing.T) {
 // TestRegisterDefaults checks all core skills are registered.
 func TestRegisterDefaults(t *testing.T) {
 	credStore, docStore, workDir := setupTestEnv(t)
-	settingsPath := filepath.Join(workDir, "settings.yaml")
-	settingsStore := settings.NewStore(settingsPath)
-
 	r := NewRegistry(nil)
 	RegisterDefaults(r, CoreConfig{
 		CredentialStore: credStore,
 		DocumentStore:   docStore,
 		WorkspaceDir:    workDir,
 		DocumentsDir:    filepath.Dir(workDir),
-		SettingsStore:   settingsStore,
 	})
 
 	expected := []string{
@@ -660,15 +655,12 @@ func TestAICompleteSkill(t *testing.T) {
 
 func TestRegistryListsAllSkills(t *testing.T) {
 	credStore, docStore, workDir := setupTestEnv(t)
-	settingsPath := filepath.Join(workDir, "settings.yaml")
-	settingsStore := settings.NewStore(settingsPath)
 
 	r := NewRegistry(nil)
 	RegisterDefaults(r, CoreConfig{
 		CredentialStore: credStore,
 		DocumentStore:   docStore,
 		WorkspaceDir:    workDir,
-		SettingsStore:   settingsStore,
 	})
 
 	list := r.List()
@@ -761,11 +753,7 @@ func TestSkillJSON(t *testing.T) {
 // --- Web Search skill tests ---
 
 func TestWebSearchNoAPIKey(t *testing.T) {
-	tmpDir := t.TempDir()
-	settingsPath := filepath.Join(tmpDir, "settings.yaml")
-	store := settings.NewStore(settingsPath)
-
-	handler := &webSearchSkill{settings: store}
+	handler := &webSearchSkill{}
 	ctx := context.Background()
 	_, err := handler.Execute(ctx, map[string]any{
 		"action": "search",
@@ -780,16 +768,11 @@ func TestWebSearchNoAPIKey(t *testing.T) {
 }
 
 func TestWebSearchMissingQuery(t *testing.T) {
-	tmpDir := t.TempDir()
-	settingsPath := filepath.Join(tmpDir, "settings.yaml")
-	store := settings.NewStore(settingsPath)
-	store.SetTavilyAPIKey("tvly-test-key-12345")
-
-	handler := &webSearchSkill{settings: store}
+	handler := &webSearchSkill{}
 	ctx := context.Background()
 	_, err := handler.Execute(ctx, map[string]any{
 		"action": "search",
-	}, nil)
+	}, map[string]string{"api_key": "tvly-test-key-12345"})
 	if err == nil {
 		t.Fatal("expected error when query is missing")
 	}
@@ -799,11 +782,7 @@ func TestWebSearchMissingQuery(t *testing.T) {
 }
 
 func TestWebSearchUnknownAction(t *testing.T) {
-	tmpDir := t.TempDir()
-	settingsPath := filepath.Join(tmpDir, "settings.yaml")
-	store := settings.NewStore(settingsPath)
-
-	handler := &webSearchSkill{settings: store}
+	handler := &webSearchSkill{}
 	ctx := context.Background()
 	_, err := handler.Execute(ctx, map[string]any{
 		"action": "unknown",
@@ -817,11 +796,7 @@ func TestWebSearchUnknownAction(t *testing.T) {
 }
 
 func TestWebSearchDefaultAction(t *testing.T) {
-	tmpDir := t.TempDir()
-	settingsPath := filepath.Join(tmpDir, "settings.yaml")
-	store := settings.NewStore(settingsPath)
-
-	handler := &webSearchSkill{settings: store}
+	handler := &webSearchSkill{}
 	ctx := context.Background()
 	// If no action provided, it defaults to "search" — should fail on missing API key, not unknown action
 	_, err := handler.Execute(ctx, map[string]any{
@@ -836,12 +811,8 @@ func TestWebSearchDefaultAction(t *testing.T) {
 }
 
 func TestWebSearchRegistered(t *testing.T) {
-	tmpDir := t.TempDir()
-	settingsPath := filepath.Join(tmpDir, "settings.yaml")
-	store := settings.NewStore(settingsPath)
-
 	r := NewRegistry(nil)
-	RegisterDefaults(r, CoreConfig{SettingsStore: store})
+	RegisterDefaults(r, CoreConfig{})
 
 	s, ok := r.Get("web_search")
 	if !ok {
@@ -870,6 +841,17 @@ func TestWebSearchRegistered(t *testing.T) {
 	}
 	if !hasQuery {
 		t.Error("web_search missing required 'query' input")
+	}
+
+	// Verify config declares api_key
+	hasAPIKey := false
+	for _, c := range s.Config {
+		if c.Name == "api_key" {
+			hasAPIKey = true
+		}
+	}
+	if !hasAPIKey {
+		t.Error("web_search missing 'api_key' in config")
 	}
 }
 

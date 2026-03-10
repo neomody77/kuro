@@ -77,24 +77,12 @@ func (t *skillToolWrapper) Declaration() *genai.FunctionDeclaration {
 	return decl
 }
 
-// destructiveSkills lists skill names (or "skill:action" patterns) requiring HITL confirmation.
-var destructiveSkills = map[string]bool{
-	"shell":             true,
-	"credential:delete": true,
-	"document:delete":   true,
-	"file:write":        true,
-	"file:delete":       true,
-	"pipeline:delete":   true,
-}
-
-func isDestructive(skillName string, params map[string]any) bool {
-	if destructiveSkills[skillName] {
-		return true
-	}
-	if action, ok := params["action"].(string); ok {
-		return destructiveSkills[skillName+":"+action]
-	}
-	return false
+// isDestructive checks whether a skill invocation requires HITL confirmation.
+// It reads the Destructive field from the skill definition (works for both
+// built-in and external YAML-defined skills).
+func isDestructive(sk *skill.Skill, params map[string]any) bool {
+	_ = params // reserved for future per-action granularity
+	return sk.Destructive
 }
 
 func (t *skillToolWrapper) Run(ctx tool.Context, args any) (map[string]any, error) {
@@ -104,7 +92,7 @@ func (t *skillToolWrapper) Run(ctx tool.Context, args any) (map[string]any, erro
 	}
 
 	// HITL: check if this is a destructive action
-	if isDestructive(t.skill.Name, params) {
+	if isDestructive(t.skill, params) {
 		if confirmation := ctx.ToolConfirmation(); confirmation != nil {
 			if !confirmation.Confirmed {
 				return map[string]any{"status": "rejected", "message": "Action rejected by user"}, nil

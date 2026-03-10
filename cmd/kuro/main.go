@@ -97,6 +97,9 @@ func main() {
 
 	// Set up skill registry with core skills
 	registry := skill.NewRegistry(nil)
+	if credStore != nil {
+		registry.SetConfigStore(skill.NewCredentialConfigStore(credStore))
+	}
 	pipelinesDir := filepath.Join(defaultRepoDir, "pipelines")
 	os.MkdirAll(pipelinesDir, 0o755)
 	skill.RegisterDefaults(registry, skill.CoreConfig{
@@ -105,11 +108,26 @@ func main() {
 		PipelinesDir:    pipelinesDir,
 		CredentialStore: credStore,
 		DocumentStore:   docStore,
-		SettingsStore:   settingsStore,
 	})
+
+	// Load global skills: ~/.kuro/skills/
+	globalSkillStore := skill.NewStore(filepath.Join(cfg.DataDir, "skills"))
+	if err := globalSkillStore.LoadAllWithSource(registry, "global"); err != nil {
+		log.Printf("Warning: failed to load global skills: %v", err)
+	}
+
+	// Load workspace skills: {repoDir}/skills/
+	workspaceSkillStore := skill.NewStore(filepath.Join(defaultRepoDir, "skills"))
+	if err := workspaceSkillStore.LoadAllWithSource(registry, "workspace"); err != nil {
+		log.Printf("Warning: failed to load workspace skills: %v", err)
+	}
 
 	// Initialize global event hub for SSE
 	eventHub := events.NewHub()
+
+	// Start async event hook dispatcher (skills with on: ["pipeline.failed"] etc.)
+	hookDispatcher := skill.NewHookDispatcher(registry, eventHub)
+	defer hookDispatcher.Stop()
 
 	// Initialize per-user SQLite database cache
 	dbCache := db.NewUserDBCache(filepath.Join(cfg.DataDir, "users"))
@@ -203,17 +221,24 @@ func main() {
 	}
 
 	// Register all API routes
+	// Create skill config store for API
+	var skillConfigStore skill.SkillConfigStore
+	if credStore != nil {
+		skillConfigStore = skill.NewCredentialConfigStore(credStore)
+	}
+
 	apiDeps := &api.Deps{
-		DataDir:       cfg.DataDir,
-		ChatService:   chatSvc,
-		SkillRegistry: registry,
-		SettingsStore: settingsStore,
-		Executor:      executor,
-		ExecStore:     execStore,
-		ADKSessionSvc: adkSessionSvcIface,
-		DBCache:       dbCache,
-		AuditLogger:   auditLogger,
-		EventHub:      eventHub,
+		DataDir:          cfg.DataDir,
+		ChatService:      chatSvc,
+		SkillRegistry:    registry,
+		SettingsStore:    settingsStore,
+		Executor:         executor,
+		ExecStore:        execStore,
+		ADKSessionSvc:    adkSessionSvcIface,
+		DBCache:          dbCache,
+		AuditLogger:      auditLogger,
+		EventHub:         eventHub,
+		SkillConfigStore: skillConfigStore,
 	}
 	if aiProvider != nil {
 		apiDeps.ADKRunner = initADKRunner(settingsStore, registry, adkSessionSvcIface)

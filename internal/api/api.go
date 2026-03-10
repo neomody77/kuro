@@ -51,6 +51,9 @@ type Deps struct {
 
 	// Real-time event hub for SSE
 	EventHub *events.Hub
+
+	// Skill config store (backed by credential store)
+	SkillConfigStore skill.SkillConfigStore
 }
 
 // Register registers all API routes on the server.
@@ -157,6 +160,8 @@ func Register(srv *server.Server, deps *Deps) {
 	// Skills
 	srv.HandleAPI("GET /api/skills", withDeps(deps, handleListSkills))
 	srv.HandleAPI("GET /api/skills/{id}", withDeps(deps, handleGetSkill))
+	srv.HandleAPI("GET /api/skills/{id}/config", withDeps(deps, handleGetSkillConfig))
+	srv.HandleAPI("PUT /api/skills/{id}/config", withDeps(deps, handleSaveSkillConfig))
 
 	// Audit Logs
 	srv.HandleAPI("GET /api/v1/audit-logs", withDeps(deps, handleListAuditLogs))
@@ -1368,7 +1373,7 @@ func handlePutLayout(deps *Deps, w http.ResponseWriter, r *http.Request) {
 
 // --- Skills ---
 
-func handleListSkills(deps *Deps, w http.ResponseWriter, r *http.Request) {
+func handleListSkills(deps *Deps, w http.ResponseWriter, _ *http.Request) {
 	if deps.SkillRegistry == nil {
 		server.WriteJSON(w, http.StatusOK, []any{})
 		return
@@ -1376,11 +1381,20 @@ func handleListSkills(deps *Deps, w http.ResponseWriter, r *http.Request) {
 	type skillInfo struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
+		Source      string `json:"source,omitempty"`
+		Destructive bool   `json:"destructive,omitempty"`
+		HasConfig   bool   `json:"has_config,omitempty"`
 	}
 	skills := deps.SkillRegistry.List()
 	result := make([]skillInfo, 0, len(skills))
 	for _, s := range skills {
-		result = append(result, skillInfo{Name: s.Name, Description: s.Description})
+		result = append(result, skillInfo{
+			Name:        s.Name,
+			Description: s.Description,
+			Source:      s.Source,
+			Destructive: s.Destructive,
+			HasConfig:   len(s.Config) > 0,
+		})
 	}
 	server.WriteJSON(w, http.StatusOK, result)
 }
@@ -1397,6 +1411,57 @@ func handleGetSkill(deps *Deps, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	server.WriteJSON(w, http.StatusOK, s)
+}
+
+func handleGetSkillConfig(deps *Deps, w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if deps.SkillConfigStore == nil {
+		server.WriteJSON(w, http.StatusOK, map[string]any{})
+		return
+	}
+	cfg, err := deps.SkillConfigStore.GetConfig(id)
+	if err != nil {
+		// No config yet — return empty
+		server.WriteJSON(w, http.StatusOK, map[string]any{})
+		return
+	}
+	// Mask sensitive values (show last 4 chars)
+	masked := make(map[string]string, len(cfg))
+	for k, v := range cfg {
+		if len(v) > 4 {
+			masked[k] = "***" + v[len(v)-4:]
+		} else if v != "" {
+			masked[k] = "***"
+		}
+	}
+	server.WriteJSON(w, http.StatusOK, masked)
+}
+
+func handleSaveSkillConfig(deps *Deps, w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if deps.SkillConfigStore == nil {
+		server.WriteError(w, http.StatusInternalServerError, "skill config store not available")
+		return
+	}
+	var data map[string]string
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+		server.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	// Skip masked values — don't overwrite real keys with placeholder
+	existing, _ := deps.SkillConfigStore.GetConfig(id)
+	for k, v := range data {
+		if strings.HasPrefix(v, "***") && existing != nil {
+			if orig, ok := existing[k]; ok {
+				data[k] = orig
+			}
+		}
+	}
+	if err := deps.SkillConfigStore.SaveConfig(id, data); err != nil {
+		server.WriteError(w, http.StatusInternalServerError, "failed to save config: "+err.Error())
+		return
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // --- Audit Logs ---

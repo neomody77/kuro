@@ -18,14 +18,12 @@ import (
 	"github.com/neomody77/kuro/internal/document"
 	"github.com/neomody77/kuro/internal/pipeline"
 	"github.com/neomody77/kuro/internal/provider"
-	"github.com/neomody77/kuro/internal/settings"
 )
 
 // CoreConfig holds the dependencies needed to create core skills.
 type CoreConfig struct {
 	CredentialStore *credential.Store
 	DocumentStore   *document.Store
-	SettingsStore   *settings.Store
 	WorkspaceDir    string
 	DocumentsDir    string
 	PipelinesDir    string
@@ -46,7 +44,9 @@ func RegisterDefaults(r *Registry, cfg CoreConfig) {
 				{Name: "type"},
 				{Name: "data"},
 			},
-			Handler: &credentialSkill{store: cfg.CredentialStore},
+			Handler:     &credentialSkill{store: cfg.CredentialStore},
+			Destructive: true,
+			Source:      "builtin",
 		})
 	}
 
@@ -62,7 +62,9 @@ func RegisterDefaults(r *Registry, cfg CoreConfig) {
 				{Name: "content"},
 				{Name: "query"},
 			},
-			Handler: &documentSkill{store: cfg.DocumentStore},
+			Handler:     &documentSkill{store: cfg.DocumentStore},
+			Destructive: true,
+			Source:      "builtin",
 		})
 	}
 
@@ -80,7 +82,9 @@ func RegisterDefaults(r *Registry, cfg CoreConfig) {
 				{Name: "connections"},
 				{Name: "settings"},
 			},
-			Handler: &pipelineSkill{dir: cfg.PipelinesDir},
+			Handler:     &pipelineSkill{dir: cfg.PipelinesDir},
+			Destructive: true,
+			Source:      "builtin",
 		})
 	}
 
@@ -90,6 +94,8 @@ func RegisterDefaults(r *Registry, cfg CoreConfig) {
 		Description: "Run a shell command",
 		Inputs:      []SkillParam{{Name: "command", Required: true}},
 		Handler:     &shell.ExecAction{},
+		Destructive: true,
+		Source:      "builtin",
 	})
 
 	// Email skill (actions: fetch, send)
@@ -98,6 +104,7 @@ func RegisterDefaults(r *Registry, cfg CoreConfig) {
 		Description: "Email operations. Actions: fetch (IMAP), send (SMTP)",
 		Inputs:      []SkillParam{{Name: "action", Required: true}},
 		Handler:     &emailSkill{},
+		Source:      "builtin",
 	})
 
 	// HTTP skill
@@ -106,6 +113,7 @@ func RegisterDefaults(r *Registry, cfg CoreConfig) {
 		Description: "Make an HTTP request",
 		Inputs:      []SkillParam{{Name: "url", Required: true}},
 		Handler:     &httpaction.RequestAction{},
+		Source:      "builtin",
 	})
 
 	// File skill (actions: read, write, list, delete, rename)
@@ -118,7 +126,9 @@ func RegisterDefaults(r *Registry, cfg CoreConfig) {
 			{Name: "new_path"},
 			{Name: "content"},
 		},
-		Handler: &fileSkill{workspaceDir: cfg.WorkspaceDir},
+		Handler:     &fileSkill{workspaceDir: cfg.WorkspaceDir},
+		Destructive: true,
+		Source:      "builtin",
 	})
 
 	// Transform skill
@@ -127,6 +137,7 @@ func RegisterDefaults(r *Registry, cfg CoreConfig) {
 		Description: "JQ-like data transformation",
 		Inputs:      []SkillParam{{Name: "expr", Required: true}},
 		Handler:     &transform.JqAction{},
+		Source:      "builtin",
 	})
 
 	// Template skill
@@ -134,6 +145,7 @@ func RegisterDefaults(r *Registry, cfg CoreConfig) {
 		Name:        "template",
 		Description: "Render a Go template",
 		Handler:     &template.RenderAction{DocumentsDir: cfg.DocumentsDir},
+		Source:      "builtin",
 	})
 
 	// AI skill
@@ -141,21 +153,24 @@ func RegisterDefaults(r *Registry, cfg CoreConfig) {
 		Name:        "ai",
 		Description: "Call an LLM for text completion",
 		Handler:     &ai.CompleteAction{Providers: cfg.Providers},
+		Source:      "builtin",
 	})
 
 	// Web Search skill (Tavily)
-	if cfg.SettingsStore != nil {
-		r.Register(&Skill{
-			Name:        "web_search",
-			Description: "Search the web for real-time information using Tavily. Actions: search",
-			Inputs: []SkillParam{
-				{Name: "action", Required: true},
-				{Name: "query", Required: true},
-				{Name: "max_results", Type: "integer"},
-			},
-			Handler: &webSearchSkill{settings: cfg.SettingsStore},
-		})
-	}
+	r.Register(&Skill{
+		Name:        "web_search",
+		Description: "Search the web for real-time information using Tavily. Actions: search",
+		Inputs: []SkillParam{
+			{Name: "action", Required: true},
+			{Name: "query", Required: true},
+			{Name: "max_results", Type: "integer"},
+		},
+		Config: []SkillParam{
+			{Name: "api_key", Required: true, Type: "password"},
+		},
+		Handler: &webSearchSkill{},
+		Source:  "builtin",
+	})
 }
 
 // --- Credential skill (unified) ---
